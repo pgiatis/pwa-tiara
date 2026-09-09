@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <title>TIARA-1000 Control Panel</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="main-panel">
+    <div class="title-row">
+      <span id="hw-led" class="led"></span>
+      <h1>TIARA-1000 Control Panel</h1>
+    </div>
+
+    <div class="status-row">
+      <div class="status-box">
+        <span class="status-label">Auto Mode</span>
+        <div id="auto-mode" class="status-value">--</div>
+      </div>
+      <div class="status-box">
+        <span class="status-label">TIA Range</span>
+        <div id="tia-range" class="status-value">--</div>
+      </div>
+      <div class="status-box">
+        <span class="status-label">Generator Range</span>
+        <div id="gen-range" class="status-value">--</div>
+      </div>
+      <div class="status-box">
+        <span class="status-label">Output</span>
+        <div id="output-state" class="status-value">--</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="box">
+        <div class="label">Measured Current</div>
+        <div class="value">
+          <span id="current-value">--</span>
+          <span id="current-unit" class="unit-text">--</span>
+        </div>
+      </div>
+
+      <div class="box">
+        <div class="label">Set Current</div>
+        <div class="value set-value-row">
+          <span id="set-current-value">--</span>
+          <span id="set-current-unit" class="unit-text">--</span>
+          <canvas id="waveform-glyph" width="32" height="16"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="row row-meta">
+      <div class="meta-block">
+        <span class="meta-label">Frequency:</span>
+        <span id="freq-value">--</span>
+        <span class="meta-suffix">Hz</span>
+      </div>
+      <div class="meta-block">
+        <span class="meta-label">Offset:</span>
+        <span id="offset-value">--</span>
+        <span class="meta-suffix">%</span>
+      </div>
+      <div class="meta-block">
+        <span class="meta-label">Samples:</span>
+        <span id="samples-value">--</span>
+      </div>
+    </div>
+
+    <div class="graph-row">
+      <div id="graph-legend"></div>
+      <div class="graph" id="graph-placeholder">
+        <canvas class="graph-canvas" id="graph-canvas" width="560" height="260"></canvas>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <button class="btn red" onclick="sendCmd('power')">Power</button>
+      <button id="output-btn" class="btn off" onclick="toggleOutput()">Output OFF</button>
+      <button class="btn attention" onclick="sendCmd('auto')">Auto Range</button>
+      <button class="btn blue" onclick="sendCmd('range:up')">Range ↑</button>
+      <button class="btn blue" onclick="sendCmd('range:down')">Range ↓</button>
+    </div>
+
+    <div class="control-row">
+      <button class="btn attention" onclick="sendCmd('free_run')">Free Run</button>
+      <button class="btn blue" onclick="showInfo()">Info</button>
+      <button class="btn attention" onclick="showSetCurrent()">Set Current</button>
+      <button class="btn blue" onclick="navigateNetwork()">Network</button>
+      <button id="source-btn" class="btn blue" onclick="sendCmd('source')">Int/Ext</button>
+    </div>
+
+    <div class="slider-wrapper">
+      <div class="label">Brightness</div>
+      <input type="range" id="brightness" class="slider" min="0" max="100" oninput="setBrightness(this.value)">
+      <div id="brightness-label">50%</div>
+    </div>
+
+    <div class="status-bar">
+      <div>
+        IP Address: <span id="ip-address">--</span>
+        &nbsp; Connected to: <span id="wifi-ssid">--</span>
+        &nbsp; Signal Strength: <span id="wifi-rssi">--</span> dBm
+      </div>
+      <div id="foot">Bootstrapping...</div>
+    </div>
+
+    <div class="admin-buttons">
+      <button class="btn blue" onclick="showFirmwareUpdateModal()">Firmware Update</button>
+      <button class="btn blue" onclick="showSpiffsManagerModal()">SPIFFS Manager</button>
+    </div>
+  </div>
+
+  <div id="info-modal" class="modal-lite">
+    <div class="modal-lite-content">
+      <h2>System Information</h2>
+      <div id="info-content"></div>
+      <div class="modal-buttons">
+        <button onclick="hideInfoModal()" class="btn blue">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="modal-lite">
+    <div class="settings-panel">
+      <div class="settings-title">Set Value (Current)</div>
+      <div class="settings-current-row">
+        <div class="settings-current-box">
+          <span>Set Current:</span>
+          <span id="settings-current-value">0.00</span>
+        </div>
+        <div class="unit-btn-row">
+          <button class="unit-btn" data-unit="mA">mA</button>
+          <button class="unit-btn" data-unit="uA">uA</button>
+          <button class="unit-btn" data-unit="nA">nA</button>
+        </div>
+      </div>
+
+      <div class="keypad-grid">
+        <button class="keypad-btn" data-key="1">1</button>
+        <button class="keypad-btn" data-key="2">2</button>
+        <button class="keypad-btn" data-key="3">3</button>
+        <button class="keypad-btn" data-key="4">4</button>
+        <button class="keypad-btn" data-key="5">5</button>
+        <button class="keypad-btn" data-key="6">6</button>
+        <button class="keypad-btn" data-key="7">7</button>
+        <button class="keypad-btn" data-key="8">8</button>
+        <button class="keypad-btn" data-key="9">9</button>
+        <button class="keypad-btn" data-key="0">0</button>
+        <button class="keypad-btn" data-key=".">.</button>
+        <button class="keypad-btn" data-key="+/-">+/-</button>
+        <button class="keypad-btn" data-key="CLR">CLR</button>
+        <button class="keypad-btn" data-key="M+">M+</button>
+        <button class="keypad-btn" data-key="MEM">MEM</button>
+      </div>
+
+      <div class="settings-action-row">
+        <button id="settings-bksp" class="btn blue">BKSP</button>
+        <button id="settings-set" class="btn green">SET</button>
+        <button id="settings-cancel" class="btn red">CANCEL</button>
+      </div>
+
+      <div class="settings-meta-labels">
+        <div>WAVEFORM</div>
+        <div>FREQ (Hz)</div>
+        <div>OFFSET</div>
+        <div>SAMPLES</div>
+      </div>
+
+      <div class="settings-meta-row">
+        <button id="waveform-btn" class="settings-meta-btn settings-meta-yellow">Constant</button>
+        <button id="freq-btn" class="settings-meta-btn settings-meta-blue-dark"><span>200</span></button>
+        <button id="offset-btn" class="settings-meta-btn settings-meta-blue-dark"><span>0%</span></button>
+        <button id="samples-btn" class="settings-meta-btn settings-meta-blue"><span>64</span></button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

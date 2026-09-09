@@ -1,0 +1,10 @@
+{
+  "name": "TIARA-1000",
+  "short_name": "TIARA",
+  "display": "standalone",
+  "start_url": "./",
+  "scope": "./",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "icons": []
+}
