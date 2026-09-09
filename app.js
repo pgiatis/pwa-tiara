@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 const KEY_WEBSITE_ID = "tiara.website.unique.id";
 const KEY_DEVICE_ID = "tiara.device.id";
 const BROKER_HOST = "pgiatis.dyndns.org";
-const BROKER_PORT = 9001;
+const BROKER_PORT_WS = 9001;
 const BROKER_USER = "BisinaSystems";
 const BROKER_PASS = "BisinaSystems123";
 const TOPIC_ROOT = "tiara";
@@ -51,8 +51,10 @@ function setFoot(message) {
 }
 
 function mqttWsUrl() {
-  const protocol = location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://${BROKER_HOST}:${BROKER_PORT}/mqtt`;
+  if (location.protocol === "https:") {
+    return `wss://${BROKER_HOST}/mqtt`;
+  }
+  return `ws://${BROKER_HOST}:${BROKER_PORT_WS}/mqtt`;
 }
 
 function publishTopic(path, payload) {
@@ -284,6 +286,10 @@ function connectMqtt() {
     clientId: `TIARA-WEB-${websiteUniqueId}`
   };
 
+  if (location.protocol === "https:") {
+    setFoot(`HTTPS page detected, using secure MQTT: ${mqttWsUrl()}`);
+  }
+
   setFoot("Connecting to MQTT broker...");
 
   try {
@@ -310,7 +316,8 @@ function connectMqtt() {
     });
     mqttClient.on("error", (err) => {
       setHardwareLed(false);
-      setFoot(`MQTT error: ${err && err.message ? err.message : "unknown"}`);
+      const message = err && err.message ? err.message : "unknown";
+      setFoot(`MQTT error (${mqttWsUrl()}): ${message}`);
       try { mqttClient.end(true); } catch (_) {}
       scheduleReconnect();
     });
@@ -335,7 +342,7 @@ function setBrightness(value) {
 function showInfo() {
   const html = [
     `<b>Instrument ID:</b> ${websiteUniqueId || "--"}`,
-    `<b>MQTT Endpoint:</b> ${BROKER_HOST}:${BROKER_PORT}`,
+    `<b>MQTT Endpoint:</b> ${mqttWsUrl()}`,
     `<b>Topic Base:</b> ${topicBase || "--"}`,
     `<b>Current:</b> ${$("current-value").innerText} ${$("current-unit").innerText}`,
     `<b>Set Current:</b> ${$("set-current-value").innerText} ${$("set-current-unit").innerText}`,
