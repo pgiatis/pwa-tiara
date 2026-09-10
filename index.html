@@ -11,13 +11,6 @@
 <body>
   <div class="main-panel">
     <div class="title-row">
-      <button id="pwa-qr-btn" class="pwa-qr-btn" onclick="showPwaQrModal()" aria-label="Show app install QR">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="7" y="2" width="10" height="20" rx="2" ry="2"></rect>
-          <rect x="9" y="5" width="6" height="12" rx="1" ry="1"></rect>
-          <circle cx="12" cy="19" r="1"></circle>
-        </svg>
-      </button>
       <span id="hw-led" class="led"></span>
       <h1>TIARA-1000 Control Panel</h1>
     </div>
@@ -123,20 +116,6 @@
       <div id="info-content"></div>
       <div class="modal-buttons">
         <button onclick="hideInfoModal()" class="btn blue">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="pwa-qr-modal" class="modal-lite" onclick="hidePwaQrModal()">
-    <div class="modal-lite-content qr-modal-content" onclick="event.stopPropagation()">
-      <h2>Install TIARA PWA</h2>
-      <div class="qr-modal-subtitle">Scan on your phone</div>
-      <div class="qr-image-wrap" onclick="hidePwaQrModal()" title="Tap QR to close">
-        <img id="pwa-qr-image" alt="PWA install QR code">
-      </div>
-      <div id="pwa-qr-url" class="qr-url"></div>
-      <div class="modal-buttons">
-        <button onclick="hidePwaQrModal()" class="btn blue">Close</button>
       </div>
     </div>
   </div>

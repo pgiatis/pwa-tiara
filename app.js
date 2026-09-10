@@ -7,7 +7,6 @@ const BROKER_PORT_WS = 9001;
 const BROKER_USER = "BisinaSystems";
 const BROKER_PASS = "BisinaSystems123";
 const TOPIC_ROOT = "tiara";
-const CLOUD_PWA_BASE_URL = "https://pgiatis.github.io/pwa-tiara/";
 
 let mqttClient = null;
 let reconnectTimer = null;
@@ -49,29 +48,6 @@ function setHardwareLed(connected) {
 function setFoot(message) {
   const foot = $("foot");
   if (foot) foot.textContent = message;
-}
-
-function buildPwaInstallUrl() {
-  const id = websiteUniqueId || normalizeUniqueId(localStorage.getItem(KEY_WEBSITE_ID));
-  if (!id) return CLOUD_PWA_BASE_URL;
-  return `${CLOUD_PWA_BASE_URL}#${encodeURIComponent(id)}`;
-}
-
-function showPwaQrModal() {
-  const installUrl = buildPwaInstallUrl();
-  const qrImage = $("pwa-qr-image");
-  const qrUrlLabel = $("pwa-qr-url");
-  const modal = $("pwa-qr-modal");
-  if (!qrImage || !qrUrlLabel || !modal) return;
-
-  qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(installUrl)}`;
-  qrUrlLabel.textContent = installUrl;
-  modal.style.display = "flex";
-}
-
-function hidePwaQrModal() {
-  const modal = $("pwa-qr-modal");
-  if (modal) modal.style.display = "none";
 }
 
 function mqttWsUrl() {
@@ -554,8 +530,6 @@ window.navigateNetwork = navigateNetwork;
 window.showSetCurrent = showSetCurrent;
 window.showFirmwareUpdateModal = showFirmwareUpdateModal;
 window.showSpiffsManagerModal = showSpiffsManagerModal;
-window.showPwaQrModal = showPwaQrModal;
-window.hidePwaQrModal = hidePwaQrModal;
 
 function bootstrap() {
   websiteUniqueId = getUniqueIdFromUrl() || normalizeUniqueId(localStorage.getItem(KEY_WEBSITE_ID));

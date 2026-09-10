@@ -34,30 +34,6 @@ body {
   position: relative;
 }
 
-.pwa-qr-btn {
-  position: absolute;
-  left: 22px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 34px;
-  height: 34px;
-  border: 1px solid #6ea7ff;
-  border-radius: 6px;
-  background: #0f2442;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 4px;
-}
-
-.pwa-qr-btn svg {
-  width: 20px;
-  height: 20px;
-  fill: #ffd94a;
-  stroke: #ffd94a;
-  stroke-width: 1;
-}
 
 h1 {
   color: #ffea63;
@@ -364,37 +340,6 @@ h1 {
   justify-content: center;
 }
 
-.qr-modal-content {
-  max-width: 380px;
-  text-align: center;
-}
-
-.qr-modal-subtitle {
-  color: #9fb0c9;
-  margin-bottom: 10px;
-}
-
-.qr-image-wrap {
-  display: inline-flex;
-  background: #fff;
-  padding: 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  border: 1px solid #2f7db6;
-}
-
-#pwa-qr-image {
-  width: 220px;
-  height: 220px;
-  display: block;
-}
-
-.qr-url {
-  margin-top: 10px;
-  color: #9fb0c9;
-  font-size: 0.82rem;
-  word-break: break-all;
-}
 
 .settings-panel {
   background: #000;
@@ -544,15 +489,6 @@ h1 {
   .graph, #graph-legend { height: 240px; }
   #graph-legend { width: 36px; font-size: 0.85rem; }
   .status-bar, .slider-wrapper .label, #brightness-label, .label, .value, .unit-text, .row-meta { font-size: 1rem; }
-  .pwa-qr-btn {
-    left: 8px;
-    width: 30px;
-    height: 30px;
-  }
-  .pwa-qr-btn svg {
-    width: 17px;
-    height: 17px;
-  }
 }
 
 /* TFT-inspired dark visual refresh */
