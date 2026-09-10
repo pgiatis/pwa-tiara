@@ -555,71 +555,67 @@ h1 {
   }
 }
 
-/* Modern mobile-first visual refresh */
+/* TFT-inspired dark visual refresh */
 :root {
-  --panel-border: #c2d9f0;
-  --primary: #0a84ff;
-  --attention: #f59e0b;
-  --danger: #d64550;
-  --active: #10b981;
-  --disabled: #9ca9b7;
+  --panel-border: #355f8a;
+  --primary: #2f7db6;
+  --attention: #ff8a00;
+  --danger: #d63b4d;
+  --active: #3ecf5e;
+  --disabled: #6e7d8e;
 }
 
 body {
-  color: #10253c;
-  font-family: "Avenir Next", "Trebuchet MS", "Gill Sans", sans-serif;
-  background:
-    radial-gradient(900px 540px at -10% -24%, #ffeaca 0%, transparent 60%),
-    radial-gradient(800px 520px at 120% -30%, #cde7ff 0%, transparent 62%),
-    linear-gradient(180deg, #f9f6ef, #e8f2ff);
+  color: #f2f7ff;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at top right, #13243a 0%, transparent 40%),
+    linear-gradient(170deg, #101827, #000000);
 }
 
 .main-panel {
   border: 1px solid var(--panel-border);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 14px 34px rgba(18, 45, 74, 0.16);
+  border-radius: 14px;
+  background: #121a26;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
   padding: 12px;
 }
 
 h1 {
-  color: #13385b;
+  color: #ffea63;
   font-size: clamp(1.05rem, 5vw, 1.7rem);
   letter-spacing: 0.05em;
 }
 
 .status-row {
-  background: transparent;
-  border: none;
-  gap: 6px;
-  overflow: visible;
-  flex-wrap: wrap;
+  border: 1px solid #3b5f83;
+  background: #192739;
+  gap: 0;
 }
 
 .status-box,
 .box,
 .status-bar {
-  border: 1px solid #d2e2f2;
-  border-radius: 12px;
-  background: #f2f8ff;
+  border: 1px solid #334b65;
+  border-radius: 10px;
+  background: #192739;
 }
 
 .status-box {
-  border-right: 1px solid #d2e2f2;
+  border-right: 1px solid #334b65;
 }
 
 .status-label,
 .label,
 .meta-label,
 #foot {
-  color: #5c7691;
+  color: #9db5cf;
 }
 
 .status-value,
 .value,
 .meta-block,
 .status-bar {
-  color: #16395d;
+  color: #f2f7ff;
 }
 
 .value {
@@ -627,39 +623,41 @@ h1 {
 }
 
 .unit-text {
-  color: #0a84ff;
+  color: #ffea63;
   font-size: clamp(1rem, 4vw, 1.5rem);
 }
 
 .row-meta {
-  color: #0a84ff;
+  color: #ffea63;
   gap: 14px;
   font-size: 1rem;
   margin-top: 4px;
 }
 
 .graph {
-  background: #f4f9ff;
-  border: 1px solid #d2e2f2;
-  border-radius: 12px;
+  background: #0c1523;
+  border: 1px solid #345579;
+  border-radius: 10px;
 }
 
 #graph-legend {
-  color: #5c7691;
+  color: #9ec9ff;
 }
 
 .btn {
-  border: 1px solid #bdd1e5;
+  border: 1px solid #4a6f95;
   border-radius: 12px;
   min-width: 132px;
   height: 52px;
   font-size: 0.95rem;
-  box-shadow: 0 4px 12px rgba(18, 50, 83, 0.14);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
 }
 
-.blue {
-  color: #ffffff;
-}
+.red { background: var(--danger); color: #fff; }
+.green { background: var(--active); color: #031b07; }
+.attention { background: var(--attention); color: #000; }
+.blue { background: var(--primary); color: #fff; }
+.off { background: var(--disabled); color: #f4f7fa; }
 
 .slider-wrapper .label,
 #brightness-label,
