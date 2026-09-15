@@ -214,9 +214,6 @@ function applyState(data) {
       $("brightness-label").innerText = `${b}%`;
     }
   }
-  if (typeof data.rssi !== "undefined") $("wifi-rssi").innerText = data.rssi;
-  if (typeof data.ssid !== "undefined") $("wifi-ssid").innerText = data.ssid || "--";
-  if (typeof data.ip !== "undefined") $("ip-address").innerText = data.ip || `piot-${websiteUniqueId}.local`;
 }
 
 function onMqttMessage(topic, payloadBuf) {
@@ -258,9 +255,12 @@ function onMqttMessage(topic, payloadBuf) {
     applyState({ samples: payload });
   } else if (name === "brightness") {
     applyState({ brightness: Number(payload) });
+  } else if (name === "rssi") {
+    applyState({ rssi: Number(payload) });
+  } else if (name === "ssid") {
+    applyState({ ssid: payload });
   } else if (name === "ip_address") {
-    // keep placeholder for info modal
-    latestState.ip = payload;
+    applyState({ ip: payload });
   }
 }
 
@@ -341,8 +341,15 @@ function setBrightness(value) {
 
 function showInfo() {
   const instrumentId = (websiteUniqueId || "--").toUpperCase();
+  const infoIp = latestState.ip || (websiteUniqueId ? `piot-${websiteUniqueId}.local` : "--");
+  const infoSsid = latestState.ssid || "--";
+  const hasRssi = typeof latestState.rssi !== "undefined" && latestState.rssi !== null && latestState.rssi !== "";
+  const infoRssi = hasRssi ? latestState.rssi : "--";
   const html = [
     `<b>Instrument ID:</b> ${instrumentId}`,
+    `<b>IP Address:</b> ${infoIp}`,
+    `<b>Connected To:</b> ${infoSsid}`,
+    `<b>Signal:</b> ${infoRssi} dBm`,
     `<b>Current:</b> ${$("current-value").innerText} ${$("current-unit").innerText}`,
     `<b>Set Current:</b> ${$("set-current-value").innerText} ${$("set-current-unit").innerText}`,
     `<b>Range:</b> ${$("tia-range").innerText}`,
@@ -350,8 +357,7 @@ function showInfo() {
     `<b>Output:</b> ${$("output-state").innerText}`,
     `<b>Frequency:</b> ${$("freq-value").innerText} Hz`,
     `<b>Offset:</b> ${$("offset-value").innerText}%`,
-    `<b>Samples:</b> ${$("samples-value").innerText}`,
-    `<b>Signal:</b> ${$("wifi-rssi").innerText} dBm`
+    `<b>Samples:</b> ${$("samples-value").innerText}`
   ].join("<br>");
 
   $("info-content").innerHTML = html;
@@ -542,8 +548,8 @@ function bootstrap() {
   }
 
   topicBase = `${TOPIC_ROOT}/${websiteUniqueId}`;
-  $("ip-address").textContent = websiteUniqueId ? `piot-${websiteUniqueId}.local` : "--";
-  $("wifi-ssid").textContent = "--";
+  latestState.ip = websiteUniqueId ? `piot-${websiteUniqueId}.local` : "--";
+  latestState.ssid = "--";
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
