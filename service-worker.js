@@ -1,11 +1,18 @@
-const CACHE = "tiara-pwa-v4-20260910";
+const CACHE = "tiara-pwa-v6-20260915c";
 const ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
   "./manifest.json",
-  "./service-worker.js"
+  "./service-worker.js",
+  "./icon-192.png",
+  "./icon-512.png",
+  "./icon-maskable-192.png",
+  "./icon-maskable-512.png",
+  "./apple-touch-icon.png",
+  "./favicon-32.png",
+  "./favicon-16.png"
 ];
 
 self.addEventListener("install", (event) => {
@@ -35,7 +42,14 @@ self.addEventListener("fetch", (event) => {
     url.pathname.endsWith("/index.html") ||
     url.pathname.endsWith("/style.css") ||
     url.pathname.endsWith("/app.js") ||
-    url.pathname.endsWith("/manifest.json")
+    url.pathname.endsWith("/manifest.json") ||
+    url.pathname.endsWith("/icon-192.png") ||
+    url.pathname.endsWith("/icon-512.png") ||
+    url.pathname.endsWith("/icon-maskable-192.png") ||
+    url.pathname.endsWith("/icon-maskable-512.png") ||
+    url.pathname.endsWith("/apple-touch-icon.png") ||
+    url.pathname.endsWith("/favicon-32.png") ||
+    url.pathname.endsWith("/favicon-16.png")
   );
 
   if (isAppShell) {
