@@ -340,10 +340,9 @@ function setBrightness(value) {
 }
 
 function showInfo() {
+  const instrumentId = (websiteUniqueId || "--").toUpperCase();
   const html = [
-    `<b>Instrument ID:</b> ${websiteUniqueId || "--"}`,
-    `<b>MQTT Endpoint:</b> ${mqttWsUrl()}`,
-    `<b>Topic Base:</b> ${topicBase || "--"}`,
+    `<b>Instrument ID:</b> ${instrumentId}`,
     `<b>Current:</b> ${$("current-value").innerText} ${$("current-unit").innerText}`,
     `<b>Set Current:</b> ${$("set-current-value").innerText} ${$("set-current-unit").innerText}`,
     `<b>Range:</b> ${$("tia-range").innerText}`,
