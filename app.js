@@ -1,60 +1,644 @@
 const $ = (id) => document.getElementById(id);
 
 const KEY_WEBSITE_ID = "tiara.website.unique.id";
+const KEY_MQTT_CFG = "tiara.mqtt.config";
 const KEY_DEVICE_ID = "tiara.device.id";
-const BROKER_HOST = "pgiatis.dyndns.org";
-const BROKER_PORT_WS = 9001;
-const BROKER_USER = "BisinaSystems";
-const BROKER_PASS = "BisinaSystems123";
-const TOPIC_ROOT = "tiara";
+const KEY_INSTRUMENT_IDS = "tiara.instrument.ids";
+const KEY_INSTRUMENT_NAMES = "tiara.instrument.names";
+const KEY_DEFAULT_INSTRUMENT_ID = "tiara.default.instrument.id";
+// In cloud-hosted mode these are the defaults used by the PWA.
+const CLOUD_MQTT_DEFAULTS = {
+  BROKER_HOST: "pgiatis.dyndns.org",
+  BROKER_PORT: 9001,
+  MQTT_USERNAME: "BisinaSystems",
+  MQTT_PASSWORD: "BisinaSystems123",
+  MQTT_CLIENT_PREFIX: "TIARA",
+  PROJECT_TOPIC_ROOT: "tiara"
+};
 
 let mqttClient = null;
 let reconnectTimer = null;
-let websiteUniqueId = "";
+let mqttConfig = null;
 let topicBase = "";
-let latestState = {};
-let currentBuffer = [];
-const bufferSize = 200;
+let activeInstrumentId = "";
+let gLoadedFromDeviceApi = false;
+const graphBuffer = [];
+const graphBufferSize = 200;
+
+function loadKnownInstrumentIds() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY_INSTRUMENT_IDS) || "[]");
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const value of raw) {
+      const id = normalizeUniqueId(value);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out;
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveKnownInstrumentIds(ids) {
+  localStorage.setItem(KEY_INSTRUMENT_IDS, JSON.stringify(ids));
+}
+
+function getDefaultInstrumentId() {
+  return normalizeUniqueId(localStorage.getItem(KEY_DEFAULT_INSTRUMENT_ID) || "");
+}
+
+function setDefaultInstrumentId(id) {
+  const safeId = normalizeUniqueId(id);
+  if (safeId) {
+    localStorage.setItem(KEY_DEFAULT_INSTRUMENT_ID, safeId);
+  } else {
+    localStorage.removeItem(KEY_DEFAULT_INSTRUMENT_ID);
+  }
+}
+
+function exportInstrumentsToFile() {
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    ids: loadKnownInstrumentIds(),
+    names: loadInstrumentNames(),
+    defaultId: getDefaultInstrumentId(),
+    activeId: activeInstrumentId || ""
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "tiara-instruments.json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  setStatus("#4ade80", "Instrument list exported");
+}
+
+function applyInstrumentImportPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid import file");
+  }
+
+  const importedIds = Array.isArray(payload.ids) ? payload.ids : [];
+  const normalizedIds = [];
+  const seen = new Set();
+  for (const rawId of importedIds) {
+    const id = normalizeUniqueId(rawId);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    normalizedIds.push(id);
+  }
+
+  if (normalizedIds.length === 0) {
+    throw new Error("No valid instrument IDs in import file");
+  }
+
+  saveKnownInstrumentIds(normalizedIds);
+
+  const rawNames = payload.names && typeof payload.names === "object" ? payload.names : {};
+  const cleanNames = {};
+  for (const key of Object.keys(rawNames)) {
+    const id = normalizeUniqueId(key);
+    const name = String(rawNames[key] || "").trim();
+    if (!id || !name) continue;
+    if (!normalizedIds.includes(id)) continue;
+    cleanNames[id] = name;
+  }
+  saveInstrumentNames(cleanNames);
+
+  const importedDefault = normalizeUniqueId(payload.defaultId || "");
+  if (importedDefault && normalizedIds.includes(importedDefault)) {
+    setDefaultInstrumentId(importedDefault);
+  } else {
+    setDefaultInstrumentId(normalizedIds[0]);
+  }
+
+  const importedActive = normalizeUniqueId(payload.activeId || "");
+  const nextActive = importedActive && normalizedIds.includes(importedActive)
+    ? importedActive
+    : (getDefaultInstrumentId() || normalizedIds[0]);
+
+  selectInstrument(nextActive, true);
+  renderInstrumentManagerList();
+  setStatus("#4ade80", `Imported ${normalizedIds.length} instrument(s)`);
+}
+
+function importInstrumentsFromFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const payload = JSON.parse(String(reader.result || "{}"));
+      applyInstrumentImportPayload(payload);
+    } catch (error) {
+      const message = error && error.message ? error.message : "Import failed";
+      setStatus("#ef4444", message);
+    }
+  };
+  reader.onerror = () => setStatus("#ef4444", "Failed to read import file");
+  reader.readAsText(file);
+}
+
+function setCurrentInstrumentAsDefault() {
+  if (!activeInstrumentId) return;
+  setDefaultInstrumentId(activeInstrumentId);
+  renderInstrumentSelector();
+  renderInstrumentManagerList();
+  setStatus("#4ade80", `Default set to ${getInstrumentDisplayName(activeInstrumentId)}`);
+}
+
+function loadInstrumentNames() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY_INSTRUMENT_NAMES) || "{}");
+    if (!raw || typeof raw !== "object") return {};
+    const out = {};
+    for (const key of Object.keys(raw)) {
+      const id = normalizeUniqueId(key);
+      const name = String(raw[key] || "").trim();
+      if (id && name) {
+        out[id] = name;
+      }
+    }
+    return out;
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveInstrumentNames(names) {
+  localStorage.setItem(KEY_INSTRUMENT_NAMES, JSON.stringify(names));
+}
+
+function setInstrumentName(id, name) {
+  const safeId = normalizeUniqueId(id);
+  if (!safeId) return;
+
+  const names = loadInstrumentNames();
+  const nextName = String(name || "").trim();
+  if (nextName) {
+    names[safeId] = nextName;
+  } else {
+    delete names[safeId];
+  }
+  saveInstrumentNames(names);
+}
+
+function getInstrumentDisplayName(id) {
+  const safeId = normalizeUniqueId(id);
+  if (!safeId) return "";
+  const names = loadInstrumentNames();
+  if (names[safeId]) {
+    return `${names[safeId]} (${safeId.toUpperCase()})`;
+  }
+  return safeId.toUpperCase();
+}
+
+function refreshInstrumentNameEditor() {
+  const input = $("instrumentNameInput");
+  if (!input) return;
+  const names = loadInstrumentNames();
+  input.value = activeInstrumentId ? (names[activeInstrumentId] || "") : "";
+}
+
+function addKnownInstrumentId(value) {
+  const id = normalizeUniqueId(value);
+  if (!id) return loadKnownInstrumentIds();
+
+  const ids = loadKnownInstrumentIds();
+  if (!ids.includes(id)) {
+    ids.push(id);
+    saveKnownInstrumentIds(ids);
+  }
+  return ids;
+}
+
+function updateInstrumentHash(id) {
+  const safeId = normalizeUniqueId(id);
+  if (!safeId) return;
+  window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}#${encodeURIComponent(safeId)}`);
+}
+
+function renderInstrumentSelector() {
+  const select = $("instrumentSelect");
+  if (!select) return;
+
+  const ids = loadKnownInstrumentIds();
+  const defaultId = getDefaultInstrumentId();
+  select.innerHTML = "";
+
+  if (ids.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "No instruments";
+    select.appendChild(opt);
+    select.disabled = true;
+    return;
+  }
+
+  select.disabled = false;
+  for (const id of ids) {
+    const opt = document.createElement("option");
+    opt.value = id;
+    const defaultTag = id === defaultId ? " [Default]" : "";
+    opt.textContent = `${getInstrumentDisplayName(id)}${defaultTag}`;
+    select.appendChild(opt);
+  }
+
+  if (activeInstrumentId && ids.includes(activeInstrumentId)) {
+    select.value = activeInstrumentId;
+  }
+
+  refreshInstrumentNameEditor();
+}
+
+function selectInstrument(id, reconnect = true) {
+  const nextId = normalizeUniqueId(id);
+  if (!nextId || !mqttConfig) return;
+
+  addKnownInstrumentId(nextId);
+  activeInstrumentId = nextId;
+  localStorage.setItem(KEY_WEBSITE_ID, nextId);
+  localStorage.setItem(KEY_DEVICE_ID, nextId);
+
+  mqttConfig.WEBSITE_UNIQUE_ID = nextId;
+  topicBase = buildTopicBase();
+  graphBuffer.length = 0;
+  drawCurrentGraph();
+  updateInstrumentHash(nextId);
+  setDynamicManifest(nextId);
+  updateIdentityPanel();
+  renderInstrumentSelector();
+
+  if (reconnect) {
+    connectMqtt();
+  }
+}
+
+function addInstrumentFromInput() {
+  const input = $("instrumentIdInput");
+  if (!input) return;
+  const typed = normalizeUniqueId(input.value);
+  if (!typed) return;
+  selectInstrument(typed, true);
+  input.value = "";
+}
+
+function saveSelectedInstrumentName() {
+  if (!activeInstrumentId) return;
+  const input = $("instrumentNameInput");
+  if (!input) return;
+  setInstrumentName(activeInstrumentId, input.value);
+  renderInstrumentSelector();
+  updateIdentityPanel();
+}
+
+function openInstrumentManagerDialog() {
+  renderInstrumentManagerList();
+  const dialog = $("instrumentManagerDialog");
+  if (dialog) dialog.showModal();
+}
+
+function closeInstrumentManagerDialog() {
+  const dialog = $("instrumentManagerDialog");
+  if (dialog) dialog.close();
+}
+
+function moveInstrument(id, direction) {
+  const safeId = normalizeUniqueId(id);
+  if (!safeId) return;
+  const ids = loadKnownInstrumentIds();
+  const index = ids.indexOf(safeId);
+  if (index < 0) return;
+
+  const target = index + direction;
+  if (target < 0 || target >= ids.length) return;
+
+  const temp = ids[index];
+  ids[index] = ids[target];
+  ids[target] = temp;
+  saveKnownInstrumentIds(ids);
+  renderInstrumentSelector();
+  renderInstrumentManagerList();
+}
+
+function renameInstrumentFromDialog(id) {
+  const safeId = normalizeUniqueId(id);
+  if (!safeId) return;
+  const names = loadInstrumentNames();
+  const current = names[safeId] || "";
+  const entered = prompt("Instrument nickname:", current);
+  if (entered === null) return;
+  setInstrumentName(safeId, entered);
+  renderInstrumentSelector();
+  renderInstrumentManagerList();
+  updateIdentityPanel();
+}
+
+function setDefaultInstrumentFromDialog(id) {
+  const safeId = normalizeUniqueId(id);
+  if (!safeId) return;
+  setDefaultInstrumentId(safeId);
+  renderInstrumentSelector();
+  renderInstrumentManagerList();
+}
+
+function deleteInstrumentFromDialog(id) {
+  const safeId = normalizeUniqueId(id);
+  if (!safeId) return;
+  const display = getInstrumentDisplayName(safeId);
+  if (!confirm(`Remove instrument ${display}?`)) return;
+
+  const ids = loadKnownInstrumentIds().filter((item) => item !== safeId);
+  saveKnownInstrumentIds(ids);
+
+  const names = loadInstrumentNames();
+  delete names[safeId];
+  saveInstrumentNames(names);
+
+  if (getDefaultInstrumentId() === safeId) {
+    setDefaultInstrumentId(ids[0] || "");
+  }
+
+  if (activeInstrumentId === safeId) {
+    const fallback = ids[0] || "";
+    if (fallback) {
+      selectInstrument(fallback, true);
+    } else {
+      activeInstrumentId = "";
+      localStorage.removeItem(KEY_WEBSITE_ID);
+      localStorage.removeItem(KEY_DEVICE_ID);
+      setStatus("#ef4444", "No instruments saved. Scan a QR code to add one.");
+      renderInstrumentSelector();
+    }
+  } else {
+    renderInstrumentSelector();
+  }
+
+  renderInstrumentManagerList();
+  updateIdentityPanel();
+}
+
+function renderInstrumentManagerList() {
+  const list = $("instrumentManagerList");
+  if (!list) return;
+
+  const ids = loadKnownInstrumentIds();
+  const defaultId = getDefaultInstrumentId();
+  list.innerHTML = "";
+
+  if (ids.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "instrument-manager-item-label";
+    empty.textContent = "No instruments saved.";
+    list.appendChild(empty);
+    return;
+  }
+
+  ids.forEach((id) => {
+    const row = document.createElement("div");
+    row.className = "instrument-manager-item";
+
+    const label = document.createElement("div");
+    label.className = "instrument-manager-item-label";
+    const name = getInstrumentDisplayName(id);
+    const suffix = [];
+    if (id === activeInstrumentId) suffix.push("Active");
+    if (id === defaultId) suffix.push("Default");
+    const state = suffix.length ? ` (${suffix.join(", ")})` : "";
+    label.textContent = `${name}${state}`;
+
+    const actions = document.createElement("div");
+    actions.className = "instrument-manager-actions";
+
+    const upBtn = document.createElement("button");
+    upBtn.textContent = "Up";
+    upBtn.addEventListener("click", () => moveInstrument(id, -1));
+
+    const downBtn = document.createElement("button");
+    downBtn.textContent = "Down";
+    downBtn.addEventListener("click", () => moveInstrument(id, 1));
+
+    const renameBtn = document.createElement("button");
+    renameBtn.textContent = "Rename";
+    renameBtn.addEventListener("click", () => renameInstrumentFromDialog(id));
+
+    const defaultBtn = document.createElement("button");
+    defaultBtn.textContent = "Set Default";
+    defaultBtn.addEventListener("click", () => setDefaultInstrumentFromDialog(id));
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.textContent = "Delete";
+    deleteBtn.addEventListener("click", () => deleteInstrumentFromDialog(id));
+
+    actions.appendChild(upBtn);
+    actions.appendChild(downBtn);
+    actions.appendChild(renameBtn);
+    actions.appendChild(defaultBtn);
+    actions.appendChild(deleteBtn);
+
+    row.appendChild(label);
+    row.appendChild(actions);
+    list.appendChild(row);
+  });
+}
+
+function setTextIf(id, value) {
+  const el = $(id);
+  if (el) el.textContent = value;
+}
+
+function setStatus(color, foot) {
+  $("statusDot").style.background = color;
+  if (foot) setTextIf("foot", foot);
+}
+
+function setDynamicManifest(uniqueId) {
+  try {
+    const startUrl = uniqueId ? `./#${encodeURIComponent(uniqueId)}` : "./";
+    const manifest = {
+      name: "TIARA-1000",
+      short_name: "TIARA",
+      display: "standalone",
+      start_url: startUrl,
+      scope: "./",
+      background_color: "#111827",
+      theme_color: "#111827",
+      icons: []
+    };
+
+    const blob = new Blob([JSON.stringify(manifest)], { type: "application/json" });
+    const link = document.querySelector("link[rel='manifest']");
+    if (link) link.href = URL.createObjectURL(blob);
+  } catch (_) {
+  }
+}
 
 function normalizeUniqueId(value) {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
 }
 
-function getUniqueIdFromUrl() {
+function extractUniqueIdFromUrl() {
   const params = new URLSearchParams(window.location.search);
-  const queryId = normalizeUniqueId(params.get("device") || params.get("id") || params.get("unique_id"));
-  if (queryId) return queryId;
+
+  const fromQuery = normalizeUniqueId(
+    params.get("device") || params.get("id") || params.get("unique_id") || ""
+  );
+  if (fromQuery) return fromQuery;
 
   const hash = String(window.location.hash || "").trim();
+  if (hash.startsWith("#/id/")) {
+    const fromHashPath = normalizeUniqueId(hash.substring(5));
+    if (fromHashPath) return fromHashPath;
+  }
+  if (hash.startsWith("#id=")) {
+    const fromHashKeyValue = normalizeUniqueId(hash.substring(4));
+    if (fromHashKeyValue) return fromHashKeyValue;
+  }
   if (hash.startsWith("#")) {
-    return normalizeUniqueId(hash.substring(1));
+    const fromHash = normalizeUniqueId(hash.substring(1));
+    if (fromHash) return fromHash;
   }
 
   return "";
 }
 
-function setHardwareLed(connected) {
-  const led = $("hw-led");
-  if (!led) return;
-  if (connected) {
-    led.style.background = "#3c3";
-    led.style.boxShadow = "0 0 6px #0f0";
-  } else {
-    led.style.background = "#d11";
-    led.style.boxShadow = "0 0 6px #f00";
+function parseConfigResponse(raw) {
+  let savedCfg = {};
+  try {
+    savedCfg = JSON.parse(localStorage.getItem(KEY_MQTT_CFG) || "{}");
+  } catch (_) {
+    savedCfg = {};
   }
+
+  const cfg = {
+    ...CLOUD_MQTT_DEFAULTS,
+    ...savedCfg,
+    ...raw
+  };
+
+  const urlId = extractUniqueIdFromUrl();
+  const savedId = normalizeUniqueId(localStorage.getItem(KEY_WEBSITE_ID) || "");
+  const savedDeviceId = normalizeUniqueId(localStorage.getItem(KEY_DEVICE_ID) || "");
+  const defaultInstrumentId = getDefaultInstrumentId();
+  const defaultId = normalizeUniqueId(cfg.WEBSITE_UNIQUE_ID || cfg.DEVICE_UNIQUE_ID || "");
+
+  const websiteId = urlId || savedId || savedDeviceId || defaultInstrumentId || defaultId;
+  if (websiteId) {
+    localStorage.setItem(KEY_WEBSITE_ID, websiteId);
+    localStorage.setItem(KEY_DEVICE_ID, websiteId);
+    addKnownInstrumentId(websiteId);
+    activeInstrumentId = websiteId;
+
+    if (!window.location.hash || normalizeUniqueId(window.location.hash.substring(1)) !== websiteId) {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}#${encodeURIComponent(websiteId)}`);
+    }
+  }
+
+  cfg.WEBSITE_UNIQUE_ID = websiteId;
+  cfg.DEVICE_UNIQUE_ID = normalizeUniqueId(cfg.DEVICE_UNIQUE_ID || websiteId);
+  if (!cfg.MQTT_CLIENT_PREFIX) cfg.MQTT_CLIENT_PREFIX = "TIARA";
+  cfg.PROJECT_TOPIC_ROOT = String(cfg.PROJECT_TOPIC_ROOT || "tiara").replace(/^\/+|\/+$/g, "");
+  cfg.BROKER_PORT = Number(cfg.BROKER_PORT || 9001);
+
+  localStorage.setItem(KEY_MQTT_CFG, JSON.stringify({
+    BROKER_HOST: String(cfg.BROKER_HOST || "").trim(),
+    BROKER_PORT: Number(cfg.BROKER_PORT || 9001),
+    MQTT_USERNAME: String(cfg.MQTT_USERNAME || ""),
+    MQTT_PASSWORD: String(cfg.MQTT_PASSWORD || ""),
+    MQTT_CLIENT_PREFIX: String(cfg.MQTT_CLIENT_PREFIX || "TIARA").trim(),
+    PROJECT_TOPIC_ROOT: String(cfg.PROJECT_TOPIC_ROOT || "tiara").trim(),
+    WEBSITE_UNIQUE_ID: String(cfg.WEBSITE_UNIQUE_ID || "").trim().toLowerCase(),
+    DEVICE_UNIQUE_ID: String(cfg.DEVICE_UNIQUE_ID || "").trim()
+  }));
+
+  return cfg;
 }
 
-function setFoot(message) {
-  const foot = $("foot");
-  if (foot) foot.textContent = message;
+function buildTopicBase() {
+  return `${mqttConfig.PROJECT_TOPIC_ROOT}/${mqttConfig.WEBSITE_UNIQUE_ID}`;
 }
 
 function mqttWsUrl() {
-  if (location.protocol === "https:") {
-    return `wss://${BROKER_HOST}/mqtt`;
+  const protocol = location.protocol === "https:" ? "wss" : "ws";
+  return `${protocol}://${mqttConfig.BROKER_HOST}:${mqttConfig.BROKER_PORT}/mqtt`;
+}
+
+function updateIdentityPanel() {
+  const site = activeInstrumentId || mqttConfig.WEBSITE_UNIQUE_ID || "--";
+  const names = loadInstrumentNames();
+  const label = names[site] ? `${names[site]} (${site})` : site;
+  const broker = `${mqttConfig.BROKER_HOST || "--"}:${mqttConfig.BROKER_PORT || "--"}`;
+  setTextIf("foot", `Instrument: ${label} | Broker: ${broker}`);
+}
+
+function buildGraphLegend() {
+  const legend = $("graphLegend");
+  if (!legend) return;
+  legend.innerHTML = "";
+
+  for (let v = 1000; v >= -1000; v -= 200) {
+    const span = document.createElement("span");
+    span.textContent = String(v);
+    legend.appendChild(span);
   }
-  return `ws://${BROKER_HOST}:${BROKER_PORT_WS}/mqtt`;
+}
+
+function pushGraphValue(value) {
+  if (!Number.isFinite(value)) return;
+  graphBuffer.push(value);
+  if (graphBuffer.length > graphBufferSize) graphBuffer.shift();
+  drawCurrentGraph();
+}
+
+function drawCurrentGraph() {
+  const canvas = $("currentGraph");
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+
+  ctx.clearRect(0, 0, width, height);
+
+  // grid lines every 200 units
+  ctx.strokeStyle = "#1f3652";
+  ctx.lineWidth = 1;
+  for (let y = 0; y <= 10; y++) {
+    const py = (y / 10) * height;
+    ctx.beginPath();
+    ctx.moveTo(0, py);
+    ctx.lineTo(width, py);
+    ctx.stroke();
+  }
+
+  // center axis
+  ctx.strokeStyle = "#3b6b99";
+  ctx.beginPath();
+  ctx.moveTo(0, height / 2);
+  ctx.lineTo(width, height / 2);
+  ctx.stroke();
+
+  // signal trace
+  ctx.strokeStyle = "#ffea63";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+
+  for (let i = 0; i < graphBufferSize; i++) {
+    const value = graphBuffer[i] !== undefined ? graphBuffer[i] : 0;
+    const x = (i / (graphBufferSize - 1)) * width;
+    const y = ((1000 - value) / 2000) * height;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
 }
 
 function publishTopic(path, payload) {
@@ -62,158 +646,25 @@ function publishTopic(path, payload) {
   mqttClient.publish(`${topicBase}${path}`, payload);
 }
 
-function sendCmd(cmd) {
-  publishTopic("/control/command", cmd);
-}
-
-window.sendCmd = sendCmd;
-
-function buildGraphLegend() {
-  const legend = $("graph-legend");
-  if (!legend) return;
-  legend.innerHTML = "";
-  const top = 1000;
-  const bottom = -1000;
-  const step = 200;
-  for (let v = top; v >= bottom; v -= step) {
-    const span = document.createElement("span");
-    span.textContent = String(v);
-    legend.appendChild(span);
-  }
-}
-
-function drawCurrentGraph() {
-  const canvas = $("graph-canvas");
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  ctx.strokeStyle = "#3cf";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  for (let i = 0; i < bufferSize; i++) {
-    const val = currentBuffer[i] !== undefined ? currentBuffer[i] : 0;
-    const y = ((1000 - val) / 2000) * canvas.height;
-    const x = (i / (bufferSize - 1)) * canvas.width;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.stroke();
-}
-
-function drawWaveformGlyph(type) {
-  const canvas = $("waveform-glyph");
-  if (!canvas) return;
-  canvas._waveformType = type;
-
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = "#ffff00";
-  ctx.lineWidth = 2;
-
-  switch (Number(type)) {
-    case 0:
-      ctx.beginPath();
-      ctx.moveTo(2, canvas.height / 2);
-      ctx.lineTo(canvas.width - 2, canvas.height / 2);
-      ctx.stroke();
-      break;
-    case 1:
-      ctx.beginPath();
-      for (let x = 0; x < canvas.width; x++) {
-        const y = canvas.height / 2 - Math.sin((x / canvas.width) * 2 * Math.PI) * (canvas.height / 2 - 2);
-        if (x === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-      break;
-    case 2:
-      ctx.beginPath();
-      ctx.moveTo(2, canvas.height / 2);
-      ctx.lineTo(canvas.width / 4, 2);
-      ctx.lineTo((canvas.width * 3) / 4, canvas.height - 2);
-      ctx.lineTo(canvas.width - 2, canvas.height / 2);
-      ctx.stroke();
-      break;
-    case 3:
-      ctx.beginPath();
-      ctx.moveTo(2, canvas.height / 2);
-      ctx.lineTo(2, 2);
-      ctx.lineTo(canvas.width / 2, 2);
-      ctx.lineTo(canvas.width / 2, canvas.height - 2);
-      ctx.lineTo(canvas.width - 2, canvas.height - 2);
-      ctx.lineTo(canvas.width - 2, canvas.height / 2);
-      ctx.stroke();
-      break;
-    default:
-      break;
-  }
-}
-
-function updateOutputButton(state) {
-  const btn = $("output-btn");
-  if (!btn) return;
-  if (state) {
-    btn.innerText = "Output ON";
-    btn.className = "btn green";
-    btn.dataset.state = "on";
-  } else {
-    btn.innerText = "Output OFF";
-    btn.className = "btn off";
-    btn.dataset.state = "off";
-  }
-}
-
-function updateSourceButton(source) {
-  const btn = $("source-btn");
-  if (!btn) return;
-  if (source === "int") {
-    btn.innerHTML = '<span style="color:#ff0;font-weight:bold;">Int</span><span style="color:#fff;">/Ext</span>';
-  } else {
-    btn.innerHTML = '<span style="color:#fff;">Int/</span><span style="color:#ff0;font-weight:bold;">Ext</span>';
-  }
+function sendCmd(rawCmd) {
+  publishTopic("/control/command", rawCmd);
 }
 
 function applyState(data) {
-  latestState = { ...latestState, ...data };
+  const cur = Number(data.cur);
+  $("cur").textContent = Number.isFinite(cur) ? `${cur.toFixed(3)} ${data.unit || ""}` : "--";
+  $("range").textContent = data.range ?? "--";
+  $("auto").textContent = data.auto ?? "--";
+  $("output").textContent = data.output ? "ON" : "OFF";
+  $("source").textContent = data.source ?? "--";
 
-  if (typeof data.cur !== "undefined") {
-    const cur = Number(data.cur);
-    $("current-value").innerText = Number.isFinite(cur) ? cur.toFixed(2) : "--";
-    if (Number.isFinite(cur)) {
-      currentBuffer.push(cur);
-      if (currentBuffer.length > bufferSize) currentBuffer.shift();
-      drawCurrentGraph();
-    }
-  }
-  if (typeof data.unit !== "undefined") $("current-unit").innerText = data.unit || "--";
-  if (typeof data.range !== "undefined") {
-    $("tia-range").innerText = data.range || "--";
-    $("gen-range").innerText = data.range || "--";
-  }
-  if (typeof data.auto !== "undefined") $("auto-mode").innerText = data.auto || "--";
-  if (typeof data.output !== "undefined") {
-    const isOn = !!data.output;
-    $("output-state").innerText = isOn ? "ON" : "OFF";
-    updateOutputButton(isOn);
-  }
-  if (typeof data.set_current !== "undefined") {
-    const sc = Number(data.set_current);
-    $("set-current-value").innerText = Number.isFinite(sc) ? sc.toFixed(2) : "--";
-  }
-  if (typeof data.set_unit !== "undefined") $("set-current-unit").innerText = data.set_unit || "--";
-  if (typeof data.frequency !== "undefined") $("freq-value").innerText = data.frequency;
-  if (typeof data.waveform_offset !== "undefined") $("offset-value").innerText = data.waveform_offset;
-  if (typeof data.samples !== "undefined") $("samples-value").innerText = data.samples;
-  if (typeof data.waveform_type !== "undefined") drawWaveformGlyph(data.waveform_type);
-  if (typeof data.source !== "undefined") updateSourceButton(data.source);
-  if (typeof data.brightness !== "undefined") {
+  if (Number.isFinite(Number(data.brightness))) {
     const b = Number(data.brightness);
-    if (Number.isFinite(b)) {
-      $("brightness").value = b;
-      $("brightness-label").innerText = `${b}%`;
-    }
+    $("brightness").value = b;
+    $("brightnessValue").textContent = `${b}%`;
   }
+
+  pushGraphValue(cur);
 }
 
 function onMqttMessage(topic, payloadBuf) {
@@ -221,7 +672,8 @@ function onMqttMessage(topic, payloadBuf) {
 
   if (topic === `${topicBase}/state/snapshot`) {
     try {
-      applyState(JSON.parse(payload));
+      const data = JSON.parse(payload);
+      applyState(data);
     } catch (_) {
     }
     return;
@@ -231,36 +683,27 @@ function onMqttMessage(topic, payloadBuf) {
   const name = topic.substring(`${topicBase}/sensors/`.length);
 
   if (name === "current_measurement") {
+    const currentText = $("cur").textContent;
+    const unit = currentText.includes(" ") ? currentText.split(" ").pop() : "";
     const n = Number(payload);
-    applyState({ cur: Number.isFinite(n) ? n : undefined });
-  } else if (name === "current_unit") {
-    applyState({ unit: payload });
-  } else if (name === "range") {
-    applyState({ range: payload });
-  } else if (name === "auto_mode") {
-    applyState({ auto: payload });
-  } else if (name === "output") {
-    applyState({ output: payload === "1" || payload.toLowerCase() === "on" });
-  } else if (name === "source") {
-    applyState({ source: payload });
-  } else if (name === "set_current") {
-    applyState({ set_current: Number(payload) });
-  } else if (name === "set_unit") {
-    applyState({ set_unit: payload });
-  } else if (name === "frequency") {
-    applyState({ frequency: payload });
-  } else if (name === "waveform_offset") {
-    applyState({ waveform_offset: payload });
-  } else if (name === "samples") {
-    applyState({ samples: payload });
-  } else if (name === "brightness") {
-    applyState({ brightness: Number(payload) });
-  } else if (name === "rssi") {
-    applyState({ rssi: Number(payload) });
-  } else if (name === "ssid") {
-    applyState({ ssid: payload });
-  } else if (name === "ip_address") {
-    applyState({ ip: payload });
+    $("cur").textContent = Number.isFinite(n) ? `${n.toFixed(3)} ${unit}` : "--";
+    pushGraphValue(n);
+  }
+  if (name === "current_unit") {
+    const currentText = $("cur").textContent;
+    const value = currentText.split(" ")[0] || "--";
+    $("cur").textContent = `${value} ${payload}`;
+  }
+  if (name === "range") $("range").textContent = payload;
+  if (name === "auto_mode") $("auto").textContent = payload;
+  if (name === "output") $("output").textContent = (payload === "1" || payload === "on") ? "ON" : "OFF";
+  if (name === "source") $("source").textContent = payload;
+  if (name === "brightness") {
+    const b = Number(payload);
+    if (Number.isFinite(b)) {
+      $("brightness").value = b;
+      $("brightnessValue").textContent = `${b}%`;
+    }
   }
 }
 
@@ -273,283 +716,218 @@ function scheduleReconnect() {
 }
 
 function connectMqtt() {
-  if (!websiteUniqueId) {
-    setFoot("No instrument ID in URL. Use ...#<unique_id>");
-    setHardwareLed(false);
+  if (!mqttConfig || !mqttConfig.BROKER_HOST) {
+    setStatus("#ef4444", "MQTT broker host is not configured");
     return;
   }
 
   const opts = {
     reconnectPeriod: 0,
-    username: BROKER_USER,
-    password: BROKER_PASS,
-    clientId: `TIARA-WEB-${websiteUniqueId}`
+    username: mqttConfig.MQTT_USERNAME || undefined,
+    password: mqttConfig.MQTT_PASSWORD && mqttConfig.MQTT_PASSWORD !== "***" ? mqttConfig.MQTT_PASSWORD : undefined,
+    clientId: `${mqttConfig.MQTT_CLIENT_PREFIX || "TIARA"}-WEB-${mqttConfig.WEBSITE_UNIQUE_ID || "site"}`
   };
 
-  if (location.protocol === "https:") {
-    setFoot(`HTTPS page detected, using secure MQTT: ${mqttWsUrl()}`);
-  }
-
-  setFoot("Connecting to MQTT broker...");
+  setStatus("#f59e0b", "Connecting to broker...");
 
   try {
     if (mqttClient) mqttClient.end(true);
     mqttClient = mqtt.connect(mqttWsUrl(), opts);
 
     mqttClient.on("connect", () => {
-      setHardwareLed(true);
-      setFoot(`Connected ${topicBase}`);
+      setStatus("#4ade80", `Connected ${topicBase}`);
       mqttClient.subscribe(`${topicBase}/#`);
       publishTopic("/control/read_state", "");
     });
 
     mqttClient.on("message", onMqttMessage);
     mqttClient.on("close", () => {
-      setHardwareLed(false);
-      setFoot("MQTT disconnected; retrying...");
+      setStatus("#94a3b8", "Disconnected; reconnect scheduled");
       scheduleReconnect();
     });
     mqttClient.on("offline", () => {
-      setHardwareLed(false);
-      setFoot("MQTT offline; retrying...");
+      setStatus("#94a3b8", "MQTT offline");
       scheduleReconnect();
     });
     mqttClient.on("error", (err) => {
-      setHardwareLed(false);
-      const message = err && err.message ? err.message : "unknown";
-      setFoot(`MQTT error (${mqttWsUrl()}): ${message}`);
+      setStatus("#ef4444", `MQTT error: ${err && err.message ? err.message : "unknown"}`);
       try { mqttClient.end(true); } catch (_) {}
       scheduleReconnect();
     });
   } catch (e) {
-    setHardwareLed(false);
-    setFoot(`Connect failed: ${e.message}`);
+    setStatus("#ef4444", `Connect failed: ${e.message}`);
     scheduleReconnect();
   }
 }
 
-function toggleOutput() {
-  const btn = $("output-btn");
-  const isOn = btn && btn.dataset.state === "on";
-  publishTopic("/control/set_output", isOn ? "off" : "on");
+async function loadConfig() {
+  let raw = {};
+  gLoadedFromDeviceApi = false;
+
+  try {
+    const res = await fetch("/api/mqtt/config?includeSecrets=1", { cache: "no-store" });
+    if (res.ok) {
+      raw = await res.json();
+      gLoadedFromDeviceApi = true;
+    }
+  } catch (_) {
+  }
+
+  mqttConfig = parseConfigResponse(raw);
+  if (activeInstrumentId) {
+    mqttConfig.WEBSITE_UNIQUE_ID = activeInstrumentId;
+  }
+  topicBase = buildTopicBase();
+  updateIdentityPanel();
+  setDynamicManifest(mqttConfig.WEBSITE_UNIQUE_ID);
+  renderInstrumentSelector();
+
+  const openCfgBtn = $("openConfig");
+  if (openCfgBtn) {
+    openCfgBtn.style.display = gLoadedFromDeviceApi ? "inline-block" : "none";
+  }
+
+  if (!gLoadedFromDeviceApi) {
+    setStatus("#f59e0b", "Cloud mode: using embedded broker config + URL instrument ID");
+  }
 }
 
-function setBrightness(value) {
-  $("brightness-label").innerText = `${value}%`;
-  publishTopic("/control/set_brightness", String(value));
-}
-
-function showInfo() {
-  const instrumentId = (websiteUniqueId || "--").toUpperCase();
-  const infoIp = latestState.ip || (websiteUniqueId ? `piot-${websiteUniqueId}.local` : "--");
-  const infoSsid = latestState.ssid || "--";
-  const hasRssi = typeof latestState.rssi !== "undefined" && latestState.rssi !== null && latestState.rssi !== "";
-  const infoRssi = hasRssi ? latestState.rssi : "--";
-  const html = [
-    `<b>Instrument ID:</b> ${instrumentId}`,
-    `<b>IP Address:</b> ${infoIp}`,
-    `<b>Connected To:</b> ${infoSsid}`,
-    `<b>Signal:</b> ${infoRssi} dBm`,
-    `<b>Current:</b> ${$("current-value").innerText} ${$("current-unit").innerText}`,
-    `<b>Set Current:</b> ${$("set-current-value").innerText} ${$("set-current-unit").innerText}`,
-    `<b>Range:</b> ${$("tia-range").innerText}`,
-    `<b>Auto Mode:</b> ${$("auto-mode").innerText}`,
-    `<b>Output:</b> ${$("output-state").innerText}`,
-    `<b>Frequency:</b> ${$("freq-value").innerText} Hz`,
-    `<b>Offset:</b> ${$("offset-value").innerText}%`,
-    `<b>Samples:</b> ${$("samples-value").innerText}`
-  ].join("<br>");
-
-  $("info-content").innerHTML = html;
-  $("info-modal").style.display = "flex";
-}
-
-function hideInfoModal() {
-  $("info-modal").style.display = "none";
-}
-
-function navigateNetwork() {
-  window.open(`http://piot-${websiteUniqueId}.local/network`, "_blank");
-}
-
-function showFirmwareUpdateModal() {
-  alert("Firmware update is available from the embedded local UI only.");
-}
-
-function showSpiffsManagerModal() {
-  alert("SPIFFS manager is available from the embedded local UI only.");
-}
-
-function showSetCurrentDialog() {
-  const currentValues = {
-    value: parseFloat($("set-current-value").textContent) || 0,
-    unit: $("set-current-unit").textContent || "uA",
-    waveform: Number($("waveform-glyph")._waveformType || 0),
-    frequency: parseFloat($("freq-value").textContent) || 100,
-    offset: parseFloat($("offset-value").textContent) || 0,
-    samples: parseInt($("samples-value").textContent, 10) || 64
+async function saveConfigFromDialog() {
+  const dialog = $("cfgDialog");
+  const form = $("cfgForm");
+  const fd = new FormData(form);
+  const next = {
+    BROKER_HOST: String(fd.get("BROKER_HOST") || "").trim(),
+    BROKER_PORT: Number(fd.get("BROKER_PORT") || 1883),
+    MQTT_USERNAME: String(fd.get("MQTT_USERNAME") || ""),
+    MQTT_PASSWORD: String(fd.get("MQTT_PASSWORD") || ""),
+    MQTT_CLIENT_PREFIX: String(fd.get("MQTT_CLIENT_PREFIX") || "TIARA").trim(),
+    PROJECT_TOPIC_ROOT: String(fd.get("PROJECT_TOPIC_ROOT") || "tiara").trim(),
+    WEBSITE_UNIQUE_ID: String(fd.get("WEBSITE_UNIQUE_ID") || "").trim().toLowerCase()
   };
 
-  const waveformLabels = ["Constant", "Sinewave", "Triangle", "Square"];
-  const frequencyValues = ["0.1", "0.2", "0.5", "1", "2", "5", "10", "20", "50", "100", "200", "300", "500", "700", "1k"];
-  const frequencyActual = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 300, 500, 700, 1000];
-  const offsetValues = ["-100%", "-75%", "-50%", "-25%", "-10%", "-5%", "0%", "+5%", "+10%", "+25%", "+50%", "+75%", "+100%"];
-  const offsetActual = [-100, -75, -50, -25, -10, -5, 0, 5, 10, 25, 50, 75, 100];
-  const samplesValues = ["8", "12", "16", "24", "32", "48", "64", "96", "128", "192", "256"];
-  const samplesActual = [8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256];
-
-  let freqIndex = frequencyActual.findIndex((f) => Math.abs(f - currentValues.frequency) < 0.01);
-  if (freqIndex < 0) freqIndex = 9;
-  let offsetIndex = offsetActual.findIndex((o) => Math.abs(o - currentValues.offset) < 0.01);
-  if (offsetIndex < 0) offsetIndex = 6;
-  let samplesIndex = samplesActual.findIndex((s) => s === currentValues.samples);
-  if (samplesIndex < 0) samplesIndex = 6;
-
-  let currentInput = currentValues.value === 0 ? "0" : currentValues.value.toFixed(2);
-  let inputCleared = false;
-  $("settings-current-value").textContent = currentInput;
-
-  function updateUnitButtons() {
-    document.querySelectorAll(".unit-btn").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.unit === currentValues.unit);
+  let savedToDeviceApi = false;
+  try {
+    const res = await fetch("/api/mqtt/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(next)
     });
-  }
 
-  function updateWaveformButton() {
-    $("waveform-btn").textContent = waveformLabels[currentValues.waveform];
-  }
-
-  function updateFrequencyButton() {
-    $("freq-btn").querySelector("span").textContent = frequencyValues[freqIndex];
-  }
-
-  function updateOffsetButton() {
-    $("offset-btn").querySelector("span").textContent = offsetValues[offsetIndex];
-  }
-
-  function updateSamplesButton() {
-    $("samples-btn").querySelector("span").textContent = samplesValues[samplesIndex];
-  }
-
-  document.querySelectorAll(".keypad-btn").forEach((btn) => {
-    btn.onclick = () => {
-      const key = btn.dataset.key;
-      if (key === "CLR") {
-        currentInput = "0";
-        inputCleared = true;
-      } else if (key === "+/-") {
-        if (currentInput.startsWith("-")) currentInput = currentInput.substring(1);
-        else if (currentInput !== "0") currentInput = `-${currentInput}`;
-      } else if (key === "M+" || key === "MEM") {
-        return;
-      } else if (key === ".") {
-        if (!inputCleared && (currentInput === "0" || currentInput === currentValues.value.toFixed(2))) {
-          currentInput = "";
-          inputCleared = true;
-        }
-        if (!currentInput.includes(".")) currentInput += ".";
-      } else {
-        if (!inputCleared && (currentInput === "0" || currentInput === currentValues.value.toFixed(2))) {
-          currentInput = "";
-          inputCleared = true;
-        }
-        currentInput = currentInput === "0" ? key : `${currentInput}${key}`;
-      }
-      $("settings-current-value").textContent = currentInput;
-    };
-  });
-
-  $("settings-bksp").onclick = () => {
-    if (currentInput.length > 0) currentInput = currentInput.slice(0, -1);
-    if (currentInput.length === 0 || currentInput === "-") currentInput = "0";
-    $("settings-current-value").textContent = currentInput;
-  };
-
-  $("waveform-btn").onclick = () => {
-    currentValues.waveform = (currentValues.waveform + 1) % 4;
-    updateWaveformButton();
-  };
-  $("freq-btn").onclick = () => {
-    freqIndex = (freqIndex + 1) % frequencyValues.length;
-    currentValues.frequency = frequencyActual[freqIndex];
-    updateFrequencyButton();
-  };
-  $("offset-btn").onclick = () => {
-    offsetIndex = (offsetIndex + 1) % offsetValues.length;
-    currentValues.offset = offsetActual[offsetIndex];
-    updateOffsetButton();
-  };
-  $("samples-btn").onclick = () => {
-    samplesIndex = (samplesIndex + 1) % samplesValues.length;
-    currentValues.samples = samplesActual[samplesIndex];
-    updateSamplesButton();
-  };
-
-  document.querySelectorAll(".unit-btn").forEach((btn) => {
-    btn.onclick = () => {
-      currentValues.unit = btn.dataset.unit;
-      updateUnitButtons();
-    };
-  });
-
-  $("settings-set").onclick = () => {
-    const value = parseFloat(currentInput);
-    if (!Number.isFinite(value)) {
-      alert("Invalid number format");
-      return;
+    if (res.ok) {
+      savedToDeviceApi = true;
+    } else {
+      const txt = await res.text();
+      throw new Error(txt || "Failed to save MQTT config");
     }
-    if (Math.abs(value) > 1000) {
-      alert(`Value must be between -1000 and 1000 ${currentValues.unit}`);
-      return;
+  } catch (_) {
+    savedToDeviceApi = false;
+  }
+
+  dialog.close();
+
+  if (savedToDeviceApi) {
+    await loadConfig();
+  } else {
+    mqttConfig = parseConfigResponse(next);
+    if (activeInstrumentId) {
+      mqttConfig.WEBSITE_UNIQUE_ID = activeInstrumentId;
     }
+    topicBase = buildTopicBase();
+    updateIdentityPanel();
+    setDynamicManifest(mqttConfig.WEBSITE_UNIQUE_ID);
+    setStatus("#f59e0b", "Saved in browser (cloud mode); device EEPROM unchanged");
+  }
 
-    sendCmd(`set_current:${value}:${currentValues.unit}`);
-    sendCmd(`waveform:${currentValues.waveform}`);
-    sendCmd(`freq:${currentValues.frequency}`);
-    sendCmd(`offset:${currentValues.offset}`);
-    sendCmd(`samples:${currentValues.samples}`);
-    $("settings-modal").style.display = "none";
-  };
-
-  $("settings-cancel").onclick = () => {
-    $("settings-modal").style.display = "none";
-  };
-
-  updateUnitButtons();
-  updateWaveformButton();
-  updateFrequencyButton();
-  updateOffsetButton();
-  updateSamplesButton();
-  $("settings-modal").style.display = "flex";
+  connectMqtt();
 }
 
-function showSetCurrent() {
-  showSetCurrentDialog();
-}
-
-window.toggleOutput = toggleOutput;
-window.setBrightness = setBrightness;
-window.showInfo = showInfo;
-window.hideInfoModal = hideInfoModal;
-window.navigateNetwork = navigateNetwork;
-window.showSetCurrent = showSetCurrent;
-window.showFirmwareUpdateModal = showFirmwareUpdateModal;
-window.showSpiffsManagerModal = showSpiffsManagerModal;
-
-function bootstrap() {
-  websiteUniqueId = getUniqueIdFromUrl() || normalizeUniqueId(localStorage.getItem(KEY_WEBSITE_ID));
-  if (websiteUniqueId) {
-    localStorage.setItem(KEY_WEBSITE_ID, websiteUniqueId);
-    localStorage.setItem(KEY_DEVICE_ID, websiteUniqueId);
-    const currentHash = normalizeUniqueId((window.location.hash || "").replace("#", ""));
-    if (currentHash !== websiteUniqueId) {
-      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}#${encodeURIComponent(websiteUniqueId)}`);
-    }
+function openConfigDialog() {
+  if (!gLoadedFromDeviceApi) {
+    setStatus("#f59e0b", "Cloud mode uses embedded MQTT credentials");
+    return;
   }
 
-  topicBase = `${TOPIC_ROOT}/${websiteUniqueId}`;
-  latestState.ip = websiteUniqueId ? `piot-${websiteUniqueId}.local` : "--";
-  latestState.ssid = "--";
+  const d = $("cfgDialog");
+  const f = $("cfgForm");
+  f.BROKER_HOST.value = mqttConfig.BROKER_HOST || "";
+  f.BROKER_PORT.value = mqttConfig.BROKER_PORT || 1883;
+  f.MQTT_USERNAME.value = mqttConfig.MQTT_USERNAME || "";
+  f.MQTT_PASSWORD.value = mqttConfig.MQTT_PASSWORD && mqttConfig.MQTT_PASSWORD !== "***" ? mqttConfig.MQTT_PASSWORD : "";
+  f.MQTT_CLIENT_PREFIX.value = mqttConfig.MQTT_CLIENT_PREFIX || "TIARA";
+  f.PROJECT_TOPIC_ROOT.value = mqttConfig.PROJECT_TOPIC_ROOT || "tiara";
+  f.WEBSITE_UNIQUE_ID.value = mqttConfig.WEBSITE_UNIQUE_ID || "";
+  d.showModal();
+}
+
+function wireUi() {
+  document.querySelectorAll("[data-cmd]").forEach((el) => {
+    el.addEventListener("click", () => sendCmd(el.getAttribute("data-cmd")));
+  });
+
+  $("outputOn").addEventListener("click", () => publishTopic("/control/set_output", "on"));
+  $("outputOff").addEventListener("click", () => publishTopic("/control/set_output", "off"));
+
+  $("applyCurrent").addEventListener("click", () => {
+    const value = Number($("setVal").value);
+    const unit = $("setUnit").value;
+    if (!Number.isFinite(value)) return;
+    publishTopic("/control/set_current", JSON.stringify({ value, unit }));
+  });
+
+  $("brightness").addEventListener("input", () => {
+    const b = Number($("brightness").value);
+    $("brightnessValue").textContent = `${b}%`;
+    publishTopic("/control/set_brightness", String(b));
+  });
+
+  $("openConfig").addEventListener("click", openConfigDialog);
+  $("instrumentSelect").addEventListener("change", () => {
+    const id = normalizeUniqueId($("instrumentSelect").value);
+    if (id) selectInstrument(id, true);
+  });
+  $("addInstrumentBtn").addEventListener("click", addInstrumentFromInput);
+  $("saveInstrumentNameBtn").addEventListener("click", saveSelectedInstrumentName);
+  $("openInstrumentManagerBtn").addEventListener("click", openInstrumentManagerDialog);
+  $("closeInstrumentManagerBtn").addEventListener("click", closeInstrumentManagerDialog);
+  $("setCurrentDefaultBtn").addEventListener("click", setCurrentInstrumentAsDefault);
+  $("exportInstrumentsBtn").addEventListener("click", exportInstrumentsToFile);
+  $("importInstrumentsBtn").addEventListener("click", () => {
+    const picker = $("importInstrumentsInput");
+    if (picker) picker.click();
+  });
+  $("importInstrumentsInput").addEventListener("change", (event) => {
+    const target = event.target;
+    const file = target && target.files ? target.files[0] : null;
+    importInstrumentsFromFile(file);
+    if (target) target.value = "";
+  });
+  $("instrumentNameInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveSelectedInstrumentName();
+    }
+  });
+  $("instrumentIdInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addInstrumentFromInput();
+    }
+  });
+  $("saveCfg").addEventListener("click", async (event) => {
+    event.preventDefault();
+    try {
+      await saveConfigFromDialog();
+    } catch (e) {
+      setStatus("#ef4444", e.message || "Failed to save config");
+    }
+  });
+}
+
+async function bootstrap() {
+  wireUi();
+  buildGraphLegend();
+  drawCurrentGraph();
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
@@ -557,12 +935,28 @@ function bootstrap() {
     });
   }
 
-  buildGraphLegend();
-  drawCurrentGraph();
-  drawWaveformGlyph(0);
-  updateOutputButton(false);
-  updateSourceButton("ext");
-  connectMqtt();
+  try {
+    await loadConfig();
+    if (!mqttConfig || !mqttConfig.WEBSITE_UNIQUE_ID) {
+      setStatus("#ef4444", "No instrument ID in URL. Use ...#<unique_id>");
+      return;
+    }
+    const hashId = extractUniqueIdFromUrl();
+    if (hashId && hashId !== activeInstrumentId) {
+      selectInstrument(hashId, false);
+    }
+
+    window.addEventListener("hashchange", () => {
+      const nextHashId = extractUniqueIdFromUrl();
+      if (nextHashId && nextHashId !== activeInstrumentId) {
+        selectInstrument(nextHashId, true);
+      }
+    });
+
+    connectMqtt();
+  } catch (e) {
+    setStatus("#ef4444", e.message || "Bootstrap failed");
+  }
 }
 
 bootstrap();
