@@ -583,6 +583,23 @@ function mqttWsUrls() {
   return [`ws://${host}:${port}/mqtt`];
 }
 
+function mqttWsUrlsForHostPort(hostIn, portIn) {
+  const host = String(hostIn || "").trim();
+  const port = Number(portIn || 9001);
+  if (!host) return [];
+
+  if (location.protocol === "https:") {
+    const urls = [];
+    if (port > 0 && port !== 443) {
+      urls.push(`wss://${host}:${port}/mqtt`);
+    }
+    urls.push(`wss://${host}/mqtt`);
+    return urls;
+  }
+
+  return [`ws://${host}:${port}/mqtt`];
+}
+
 function updateIdentityPanel() {
   const site = activeInstrumentId || mqttConfig.WEBSITE_UNIQUE_ID || "--";
   const names = loadInstrumentNames();
@@ -734,6 +751,21 @@ function connectMqtt() {
   }
 
   const candidateUrls = mqttWsUrls();
+
+  // In GitHub/cloud mode, stale saved config can point to the wrong broker.
+  // Append canonical cloud broker endpoints as recovery candidates.
+  if (!gLoadedFromDeviceApi) {
+    const fallbackUrls = mqttWsUrlsForHostPort(
+      CLOUD_MQTT_DEFAULTS.BROKER_HOST,
+      CLOUD_MQTT_DEFAULTS.BROKER_PORT
+    );
+    for (const url of fallbackUrls) {
+      if (!candidateUrls.includes(url)) {
+        candidateUrls.push(url);
+      }
+    }
+  }
+
   if (candidateUrls.length === 0) {
     setStatus("#ef4444", "No MQTT endpoint candidates available");
     return;
