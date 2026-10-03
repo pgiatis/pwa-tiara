@@ -24,6 +24,8 @@ let activeInstrumentId = "";
 let gLoadedFromDeviceApi = false;
 const graphBuffer = [];
 const graphBufferSize = 120;
+let graphDrawPending = false;
+let lastPacketReceiveMs = 0;
 
 function loadKnownInstrumentIds() {
   try {
@@ -624,7 +626,33 @@ function pushGraphValue(value) {
   if (!Number.isFinite(value)) return;
   graphBuffer.push(value);
   if (graphBuffer.length > graphBufferSize) graphBuffer.shift();
-  drawCurrentGraph();
+  scheduleGraphDraw();
+}
+
+function pushGraphValues(values) {
+  let added = 0;
+  for (const raw of values) {
+    const value = Number(raw);
+    if (!Number.isFinite(value)) continue;
+    graphBuffer.push(value);
+    added++;
+  }
+  if (added === 0) return;
+
+  const overflow = graphBuffer.length - graphBufferSize;
+  if (overflow > 0) {
+    graphBuffer.splice(0, overflow);
+  }
+  scheduleGraphDraw();
+}
+
+function scheduleGraphDraw() {
+  if (graphDrawPending) return;
+  graphDrawPending = true;
+  requestAnimationFrame(() => {
+    graphDrawPending = false;
+    drawCurrentGraph();
+  });
 }
 
 function drawCurrentGraph() {
@@ -725,11 +753,29 @@ function onMqttMessage(topic, payloadBuf) {
   const name = topic.substring(`${topicBase}/sensors/`.length);
 
   if (name === "current_measurement") {
+    if (Date.now() - lastPacketReceiveMs < 1500) return;
     const currentText = $("cur").textContent;
     const unit = currentText.includes(" ") ? currentText.split(" ").pop() : "";
     const n = Number(payload);
     $("cur").textContent = Number.isFinite(n) ? `${n.toFixed(3)} ${unit}` : "--";
     pushGraphValue(n);
+  }
+  if (name === "current_packet") {
+    try {
+      const packet = JSON.parse(payload);
+      const values = Array.isArray(packet.values) ? packet.values : [];
+      if (values.length > 0) {
+        pushGraphValues(values);
+        const last = Number(values[values.length - 1]);
+        if (Number.isFinite(last)) {
+          const currentText = $("cur").textContent;
+          const unit = currentText.includes(" ") ? currentText.split(" ").pop() : "";
+          $("cur").textContent = `${last.toFixed(3)} ${unit}`;
+        }
+        lastPacketReceiveMs = Date.now();
+      }
+    } catch (_) {
+    }
   }
   if (name === "current_unit") {
     const currentText = $("cur").textContent;
