@@ -23,7 +23,7 @@ let topicBase = "";
 let activeInstrumentId = "";
 let gLoadedFromDeviceApi = false;
 const graphBuffer = [];
-const graphBufferSize = 200;
+const graphBufferSize = 120;
 
 function loadKnownInstrumentIds() {
   try {
@@ -656,13 +656,26 @@ function drawCurrentGraph() {
   ctx.stroke();
 
   // signal trace
+  const points = graphBuffer.length;
+  if (points === 0) {
+    return;
+  }
+
   ctx.strokeStyle = "#ffea63";
   ctx.lineWidth = 2;
   ctx.beginPath();
 
-  for (let i = 0; i < graphBufferSize; i++) {
-    const value = graphBuffer[i] !== undefined ? graphBuffer[i] : 0;
-    const x = (i / (graphBufferSize - 1)) * width;
+  if (points === 1) {
+    const y = ((1000 - graphBuffer[0]) / 2000) * height;
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+    return;
+  }
+
+  for (let i = 0; i < points; i++) {
+    const value = graphBuffer[i];
+    const x = (i / (points - 1)) * width;
     const y = ((1000 - value) / 2000) * height;
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
