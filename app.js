@@ -567,9 +567,20 @@ function buildTopicBase() {
   return `${mqttConfig.PROJECT_TOPIC_ROOT}/${mqttConfig.WEBSITE_UNIQUE_ID}`;
 }
 
-function mqttWsUrl() {
-  const protocol = location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://${mqttConfig.BROKER_HOST}:${mqttConfig.BROKER_PORT}/mqtt`;
+function mqttWsUrls() {
+  const host = String(mqttConfig.BROKER_HOST || "").trim();
+  const port = Number(mqttConfig.BROKER_PORT || 9001);
+
+  if (location.protocol === "https:") {
+    const urls = [];
+    if (port > 0 && port !== 443) {
+      urls.push(`wss://${host}:${port}/mqtt`);
+    }
+    urls.push(`wss://${host}/mqtt`);
+    return urls;
+  }
+
+  return [`ws://${host}:${port}/mqtt`];
 }
 
 function updateIdentityPanel() {
@@ -722,6 +733,12 @@ function connectMqtt() {
     return;
   }
 
+  const candidateUrls = mqttWsUrls();
+  if (candidateUrls.length === 0) {
+    setStatus("#ef4444", "No MQTT endpoint candidates available");
+    return;
+  }
+
   const opts = {
     reconnectPeriod: 0,
     username: mqttConfig.MQTT_USERNAME || undefined,
@@ -729,36 +746,69 @@ function connectMqtt() {
     clientId: `${mqttConfig.MQTT_CLIENT_PREFIX || "TIARA"}-WEB-${mqttConfig.WEBSITE_UNIQUE_ID || "site"}`
   };
 
-  setStatus("#f59e0b", "Connecting to broker...");
+  const connectAt = (urlIndex) => {
+    const endpoint = candidateUrls[urlIndex];
+    let connected = false;
+    let switched = false;
 
-  try {
-    if (mqttClient) mqttClient.end(true);
-    mqttClient = mqtt.connect(mqttWsUrl(), opts);
+    setStatus("#f59e0b", `Connecting to broker (${endpoint})...`);
 
-    mqttClient.on("connect", () => {
-      setStatus("#4ade80", `Connected ${topicBase}`);
-      mqttClient.subscribe(`${topicBase}/#`);
-      publishTopic("/control/read_state", "");
-    });
+    try {
+      if (mqttClient) mqttClient.end(true);
+      mqttClient = mqtt.connect(endpoint, opts);
 
-    mqttClient.on("message", onMqttMessage);
-    mqttClient.on("close", () => {
-      setStatus("#94a3b8", "Disconnected; reconnect scheduled");
+      mqttClient.on("connect", () => {
+        connected = true;
+        setStatus("#4ade80", `Connected ${topicBase}`);
+        mqttClient.subscribe(`${topicBase}/#`);
+        publishTopic("/control/read_state", "");
+      });
+
+      mqttClient.on("message", onMqttMessage);
+
+      mqttClient.on("close", () => {
+        if (!connected && !switched && urlIndex + 1 < candidateUrls.length) {
+          switched = true;
+          connectAt(urlIndex + 1);
+          return;
+        }
+        setStatus("#94a3b8", "Disconnected; reconnect scheduled");
+        scheduleReconnect();
+      });
+
+      mqttClient.on("offline", () => {
+        if (!connected && !switched && urlIndex + 1 < candidateUrls.length) {
+          switched = true;
+          connectAt(urlIndex + 1);
+          return;
+        }
+        setStatus("#94a3b8", "MQTT offline");
+        scheduleReconnect();
+      });
+
+      mqttClient.on("error", (err) => {
+        if (!connected && !switched && urlIndex + 1 < candidateUrls.length) {
+          switched = true;
+          try { mqttClient.end(true); } catch (_) {}
+          connectAt(urlIndex + 1);
+          return;
+        }
+
+        setStatus("#ef4444", `MQTT error: ${err && err.message ? err.message : "unknown"}`);
+        try { mqttClient.end(true); } catch (_) {}
+        scheduleReconnect();
+      });
+    } catch (e) {
+      if (urlIndex + 1 < candidateUrls.length) {
+        connectAt(urlIndex + 1);
+        return;
+      }
+      setStatus("#ef4444", `Connect failed: ${e.message}`);
       scheduleReconnect();
-    });
-    mqttClient.on("offline", () => {
-      setStatus("#94a3b8", "MQTT offline");
-      scheduleReconnect();
-    });
-    mqttClient.on("error", (err) => {
-      setStatus("#ef4444", `MQTT error: ${err && err.message ? err.message : "unknown"}`);
-      try { mqttClient.end(true); } catch (_) {}
-      scheduleReconnect();
-    });
-  } catch (e) {
-    setStatus("#ef4444", `Connect failed: ${e.message}`);
-    scheduleReconnect();
-  }
+    }
+  };
+
+  connectAt(0);
 }
 
 async function loadConfig() {
