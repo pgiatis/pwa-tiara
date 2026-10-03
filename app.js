@@ -528,9 +528,10 @@ function parseConfigResponse(raw) {
   const savedId = normalizeUniqueId(localStorage.getItem(KEY_WEBSITE_ID) || "");
   const savedDeviceId = normalizeUniqueId(localStorage.getItem(KEY_DEVICE_ID) || "");
   const defaultInstrumentId = getDefaultInstrumentId();
-  const defaultId = normalizeUniqueId(cfg.WEBSITE_UNIQUE_ID || cfg.DEVICE_UNIQUE_ID || "");
+  const deviceConfigId = normalizeUniqueId(cfg.WEBSITE_UNIQUE_ID || cfg.DEVICE_UNIQUE_ID || "");
 
-  const websiteId = urlId || savedId || savedDeviceId || defaultInstrumentId || defaultId;
+  // Prefer the current device identity when loaded from device API to avoid stale cross-device topic mismatches.
+  const websiteId = urlId || deviceConfigId || savedId || savedDeviceId || defaultInstrumentId;
   if (websiteId) {
     localStorage.setItem(KEY_WEBSITE_ID, websiteId);
     localStorage.setItem(KEY_DEVICE_ID, websiteId);
