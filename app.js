@@ -18,15 +18,24 @@ let websiteUniqueId = "";
 let topicBase = "";
 let latestState = {};
 let currentBuffer = [];
-const bufferSize = 120;
+const bufferSize = 512;
 let graphDrawPending = false;
 let lastPacketReceiveMs = 0;
 let graphRenderPointBudget = 180;
 let graphInterpolationPxStep = 6;
+let currentGraphMode = "smooth";
+let graphWindowPoints = 160;
 const GRAPH_RENDER_MODES = {
-  accuracy: { budget: 300, pxStep: 3 },
-  smooth: { budget: 180, pxStep: 6 },
-  performance: { budget: 96, pxStep: 10 }
+  accuracy: { budget: 320, pxStep: 2, windowPoints: 320 },
+  smooth: { budget: 180, pxStep: 6, windowPoints: 160 },
+  performance: { budget: 84, pxStep: 12, windowPoints: 72 },
+  ideal: { budget: 260, pxStep: 4, windowPoints: 220 }
+};
+const graphSignalState = {
+  waveformType: 0,
+  frequency: 0,
+  offset: 0,
+  samples: 64
 };
 let instrumentScanActive = false;
 let instrumentScanTimer = null;
@@ -937,6 +946,8 @@ function setGraphRenderMode(mode, persist = true) {
   const cfg = GRAPH_RENDER_MODES[safeMode];
   graphRenderPointBudget = cfg.budget;
   graphInterpolationPxStep = cfg.pxStep;
+  graphWindowPoints = cfg.windowPoints;
+  currentGraphMode = safeMode;
 
   if (persist) {
     localStorage.setItem(KEY_GRAPH_RENDER_MODE, safeMode);
@@ -957,6 +968,65 @@ function initGraphRenderMode() {
 
 function clampGraphValue(value) {
   return Math.max(-1000, Math.min(1000, value));
+}
+
+function normalizeWaveformType(rawType) {
+  const t = Number(rawType);
+  return Number.isFinite(t) ? Math.max(0, Math.min(3, Math.round(t))) : 0;
+}
+
+function waveformValue(type, phase) {
+  const frac = phase - Math.floor(phase);
+  switch (type) {
+    case 1:
+      return Math.sin(frac * Math.PI * 2);
+    case 2:
+      return 1 - 4 * Math.abs(frac - 0.5);
+    case 3:
+      return frac < 0.5 ? 1 : -1;
+    default:
+      return 0;
+  }
+}
+
+function buildIdealRenderPoints(values, width, height) {
+  if (values.length < 2) return buildRenderPoints(values, width, height);
+
+  let minVal = Infinity;
+  let maxVal = -Infinity;
+  for (const raw of values) {
+    const value = clampGraphValue(Number(raw));
+    if (!Number.isFinite(value)) continue;
+    if (value < minVal) minVal = value;
+    if (value > maxVal) maxVal = value;
+  }
+
+  if (!Number.isFinite(minVal) || !Number.isFinite(maxVal)) {
+    return buildRenderPoints(values, width, height);
+  }
+
+  const amplitude = Math.max((maxVal - minVal) / 2, 0.5);
+  const baseCenter = (maxVal + minVal) / 2;
+  const offsetPct = Number.isFinite(Number(graphSignalState.offset)) ? Number(graphSignalState.offset) : 0;
+  const center = clampGraphValue(baseCenter + amplitude * (offsetPct / 100));
+  const periodSamples = Math.max(8, Math.round(Number(graphSignalState.samples) || 64));
+  const cyclesAcrossWindow = Math.max(1, values.length / periodSamples);
+  const frequency = Number(graphSignalState.frequency);
+  const phaseOffset = Number.isFinite(frequency) && frequency > 0
+    ? (Date.now() / 1000 * frequency) % 1
+    : 0;
+  const waveformType = normalizeWaveformType(graphSignalState.waveformType);
+
+  const outputPoints = Math.max(280, Math.floor(width));
+  const out = [];
+  for (let i = 0; i < outputPoints; i++) {
+    const x = (i / (outputPoints - 1)) * width;
+    const phase = phaseOffset + (i / (outputPoints - 1)) * cyclesAcrossWindow;
+    const v = clampGraphValue(center + amplitude * waveformValue(waveformType, phase));
+    const y = ((1000 - v) / 2000) * height;
+    out.push({ x, y });
+  }
+  return out;
 }
 
 function buildRenderIndices(totalPoints, maxPoints) {
@@ -1054,10 +1124,13 @@ function drawCurrentGraph() {
   ctx.stroke();
   ctx.restore();
 
-  const points = currentBuffer.length;
+  const sourceValues = currentBuffer.slice(-graphWindowPoints);
+  const points = sourceValues.length;
   if (points === 0) return;
 
-  const renderPoints = buildRenderPoints(currentBuffer, canvas.width, canvas.height);
+  const renderPoints = currentGraphMode === "ideal"
+    ? buildIdealRenderPoints(sourceValues, canvas.width, canvas.height)
+    : buildRenderPoints(sourceValues, canvas.width, canvas.height);
   if (renderPoints.length === 0) return;
 
   ctx.strokeStyle = "#3cf";
@@ -1155,6 +1228,22 @@ function updateSourceButton(source) {
 function applyState(data) {
   latestState = { ...latestState, ...data };
 
+  if (typeof data.waveform_type !== "undefined") {
+    graphSignalState.waveformType = normalizeWaveformType(data.waveform_type);
+  }
+  if (typeof data.frequency !== "undefined") {
+    const f = Number(data.frequency);
+    if (Number.isFinite(f)) graphSignalState.frequency = f;
+  }
+  if (typeof data.waveform_offset !== "undefined") {
+    const o = Number(data.waveform_offset);
+    if (Number.isFinite(o)) graphSignalState.offset = o;
+  }
+  if (typeof data.samples !== "undefined") {
+    const s = Number(data.samples);
+    if (Number.isFinite(s) && s > 0) graphSignalState.samples = s;
+  }
+
   if (typeof data.cur !== "undefined") {
     const cur = Number(data.cur);
     $("current-value").innerText = Number.isFinite(cur) ? cur.toFixed(2) : "--";
@@ -1250,6 +1339,8 @@ function onMqttMessage(topic, payloadBuf) {
     applyState({ set_current: Number(payload) });
   } else if (name === "set_unit") {
     applyState({ set_unit: payload });
+  } else if (name === "waveform_type") {
+    applyState({ waveform_type: Number(payload) });
   } else if (name === "frequency") {
     applyState({ frequency: payload });
   } else if (name === "waveform_offset") {
