@@ -59,10 +59,51 @@ h1 {
 
 .unit-switch-row {
   display: grid;
-  grid-template-columns: auto minmax(130px, 1fr) minmax(150px, 1fr) auto minmax(170px, 1fr) auto auto auto auto auto;
+  grid-template-columns: 1fr;
   gap: 8px;
   align-items: center;
+  margin-bottom: 2px;
+}
+
+.connection-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
   margin-bottom: 10px;
+}
+
+.connection-open-btn {
+  flex: 0 0 auto;
+  min-width: 146px;
+}
+
+.connection-active {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #355f8a;
+  border-radius: 10px;
+  background: #0f1b2a;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
+
+.connection-active-label {
+  color: #9db5cf;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+#connection-active-id {
+  color: #ffea63;
+  font-size: 0.98rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .unit-switch-row label {
@@ -172,8 +213,11 @@ h1 {
 .row-meta {
   margin-top: -6px;
   margin-bottom: 10px;
-  justify-content: center;
-  gap: 32px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  justify-items: center;
+  gap: 8px;
   color: #ff0;
   font-size: 2rem;
 }
@@ -181,6 +225,8 @@ h1 {
 .meta-block {
   display: flex;
   align-items: baseline;
+  justify-content: center;
+  min-width: 0;
 }
 
 .meta-label {
@@ -376,6 +422,13 @@ h1 {
 .instrument-manager-modal-content {
   max-width: 880px;
   width: min(92vw, 880px);
+}
+
+.connection-modal-content {
+  max-width: 580px;
+  width: min(94vw, 580px);
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .instrument-manager-list {
@@ -679,34 +732,182 @@ h1 {
 
 @media (max-width: 760px) {
   .main-panel {
-    margin: 8px;
-    padding: 10px;
+    margin: 4px;
+    padding: 8px;
+    height: calc(100dvh - 8px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    gap: 4px;
+  }
+
+  h1 {
+    font-size: 1rem;
+  }
+
+  .title-row {
+    margin-bottom: 2px;
+  }
+
+  .connection-strip {
+    margin-bottom: 2px;
+    gap: 6px;
+  }
+
+  .connection-open-btn {
+    min-width: 104px;
+  }
+
+  .connection-active {
+    padding: 6px 8px;
+  }
+
+  .connection-active-label {
+    font-size: 0.67rem;
+  }
+
+  #connection-active-id {
+    font-size: 0.82rem;
+  }
+
+  .status-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    margin-bottom: 4px;
+    border: none;
+    background: transparent;
+    overflow: visible;
+  }
+
+  .status-box {
+    padding: 5px 4px;
+    min-width: 0;
+    border-right: 1px solid #334b65;
+  }
+
+  .status-box:nth-child(2n) {
+    border-right: 1px solid #334b65;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    align-items: stretch;
+    margin-bottom: 4px;
+  }
+
+  .status-label,
+  .label {
+    font-size: 0.66rem;
+  }
+
+  .status-value {
+    font-size: 0.86rem;
+  }
+
+  .box {
+    padding: 8px 6px;
+  }
+
+  .value {
+    font-size: 1.05rem;
+  }
+
+  .unit-text {
+    font-size: 0.78rem;
+  }
+
+  .row-meta {
+    margin-top: 0;
+    margin-bottom: 4px;
+    font-size: 0.72rem;
+    gap: 6px;
   }
 
   .control-row {
-    gap: 8px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    margin-bottom: 4px;
   }
 
-  .btn {
+  .control-row .btn {
     min-width: 0;
-    flex: 1 1 calc(50% - 8px);
-    height: 46px;
-    font-size: 0.9rem;
+    width: 100%;
+    flex: none;
+    height: 34px;
+    font-size: 0.72rem;
+    padding: 0 10px;
+    border-radius: 9px;
+  }
+
+  .graph-row {
+    flex: 1;
+    min-height: 0;
+    margin-bottom: 4px;
+    margin-top: 0;
   }
 
   .graph,
   #graph-legend {
-    height: 220px;
+    height: 100%;
+  }
+
+  .graph {
+    min-height: 92px;
   }
 
   #graph-legend {
-    width: 30px;
-    font-size: 0.76rem;
+    width: 24px;
+    font-size: 0.62rem;
+    margin-right: 4px;
+  }
+
+  .slider-wrapper {
+    margin-top: 0;
+    gap: 5px;
+    margin-bottom: 0;
+  }
+
+  .slider-wrapper .label,
+  #brightness-label {
+    font-size: 0.68rem;
+    min-width: auto;
   }
 
   .settings-panel {
     width: calc(100vw - 16px);
     max-height: 92vh;
     overflow-y: auto;
+  }
+
+  .modal-lite-content {
+    padding: 14px 12px 12px 12px;
+  }
+}
+
+@media (max-width: 430px) {
+  .control-row .btn {
+    height: 32px;
+    font-size: 0.68rem;
+  }
+
+  .status-label,
+  .label {
+    font-size: 0.62rem;
+  }
+
+  .status-value {
+    font-size: 0.8rem;
+  }
+
+  .value {
+    font-size: 0.95rem;
+  }
+
+  .row-meta {
+    font-size: 0.67rem;
   }
 }

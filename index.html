@@ -12,14 +12,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TIARA">
   <title>TIARA-1000 Control Panel</title>
-  <link rel="manifest" href="manifest.json?v=20261004b">
+  <link rel="manifest" href="manifest.json?v=20261005a">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=20261004b">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png?v=20261004b">
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=20261004b">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=20260915b">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png?v=20260915b">
   <link rel="apple-touch-icon" href="apple-touch-icon.png?v=20260915b">
-  <link rel="stylesheet" href="style.css?v=20261004b">
+  <link rel="stylesheet" href="style.css?v=20261005a">
 </head>
 <body>
   <div class="main-panel">
@@ -28,18 +28,12 @@
       <h1>TIARA-1000 Control Panel</h1>
     </div>
 
-    <div class="unit-switch-row">
-      <label for="instrument-select">Instrument</label>
-      <select id="instrument-select"></select>
-      <input id="instrument-input" type="text" placeholder="Scan new QR or type ID">
-      <button class="btn blue unit-add-btn" id="instrument-add-btn">Add</button>
-      <input id="instrument-name-input" type="text" placeholder="Nickname for selected instrument">
-      <button class="btn blue unit-add-btn" id="instrument-name-save-btn">Save Name</button>
-      <button class="btn blue unit-add-btn" id="instrument-default-btn">Make Default</button>
-      <button class="btn blue unit-add-btn" id="instrument-export-btn">Export</button>
-      <input id="instrument-import-input" type="file" accept="application/json" hidden>
-      <button class="btn blue unit-add-btn" id="instrument-import-btn">Import</button>
-      <button class="btn blue unit-add-btn" id="instrument-manage-btn">Manage</button>
+    <div class="connection-strip">
+      <button class="btn blue connection-open-btn" id="connection-open-btn">Connection</button>
+      <div class="connection-active">
+        <span class="connection-active-label">Active Instrument</span>
+        <span id="connection-active-id">--</span>
+      </div>
     </div>
 
     <div class="status-row">
@@ -203,7 +197,29 @@
     </div>
   </div>
 
+  <div id="connection-modal" class="modal-lite">
+    <div class="modal-lite-content connection-modal-content">
+      <h2>Connection</h2>
+      <div class="unit-switch-row">
+        <label for="instrument-select">Instrument</label>
+        <select id="instrument-select"></select>
+        <input id="instrument-input" type="text" placeholder="Scan new QR or type ID">
+        <button class="btn blue unit-add-btn" id="instrument-add-btn">Add</button>
+        <input id="instrument-name-input" type="text" placeholder="Nickname for selected instrument">
+        <button class="btn blue unit-add-btn" id="instrument-name-save-btn">Save Name</button>
+        <button class="btn blue unit-add-btn" id="instrument-default-btn">Make Default</button>
+        <button class="btn blue unit-add-btn" id="instrument-export-btn">Export</button>
+        <input id="instrument-import-input" type="file" accept="application/json" hidden>
+        <button class="btn blue unit-add-btn" id="instrument-import-btn">Import</button>
+        <button class="btn blue unit-add-btn" id="instrument-manage-btn">Manage</button>
+      </div>
+      <div class="modal-buttons">
+        <button id="connection-close-btn" class="btn blue">Done</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-  <script src="app.js?v=20261004b"></script>
+  <script src="app.js?v=20261005a"></script>
 </body>
 </html>

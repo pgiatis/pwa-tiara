@@ -193,6 +193,16 @@ function refreshInstrumentNameEditor() {
   input.value = websiteUniqueId ? (names[websiteUniqueId] || "") : "";
 }
 
+function updateConnectionSummary() {
+  const label = $("connection-active-id");
+  if (!label) return;
+  if (!websiteUniqueId) {
+    label.textContent = "No instrument selected";
+    return;
+  }
+  label.textContent = getInstrumentDisplayName(websiteUniqueId);
+}
+
 function addKnownInstrumentId(value) {
   const id = normalizeUniqueId(value);
   if (!id) return loadKnownInstrumentIds();
@@ -218,6 +228,7 @@ function renderInstrumentSelector() {
     opt.textContent = "No instruments";
     select.appendChild(opt);
     select.disabled = true;
+    updateConnectionSummary();
     return;
   }
 
@@ -235,6 +246,7 @@ function renderInstrumentSelector() {
   }
 
   refreshInstrumentNameEditor();
+  updateConnectionSummary();
 }
 
 function updateInstrumentHash(id) {
@@ -294,6 +306,16 @@ function openInstrumentManager() {
 
 function closeInstrumentManager() {
   const modal = $("instrument-manager-modal");
+  if (modal) modal.style.display = "none";
+}
+
+function openConnectionModal() {
+  const modal = $("connection-modal");
+  if (modal) modal.style.display = "flex";
+}
+
+function closeConnectionModal() {
+  const modal = $("connection-modal");
   if (modal) modal.style.display = "none";
 }
 
@@ -1136,6 +1158,21 @@ function bootstrap() {
 
   renderInstrumentSelector();
 
+  const openConnectionBtn = $("connection-open-btn");
+  if (openConnectionBtn) openConnectionBtn.addEventListener("click", openConnectionModal);
+
+  const closeConnectionBtn = $("connection-close-btn");
+  if (closeConnectionBtn) closeConnectionBtn.addEventListener("click", closeConnectionModal);
+
+  const connectionModal = $("connection-modal");
+  if (connectionModal) {
+    connectionModal.addEventListener("click", (event) => {
+      if (event.target === connectionModal) {
+        closeConnectionModal();
+      }
+    });
+  }
+
   const select = $("instrument-select");
   if (select) {
     select.addEventListener("change", () => {
@@ -1202,7 +1239,7 @@ function bootstrap() {
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("./service-worker.js?v=20261004b").catch(() => {});
+      navigator.serviceWorker.register("./service-worker.js?v=20261005a").catch(() => {});
     });
   }
 
