@@ -5,6 +5,7 @@ const KEY_DEVICE_ID = "tiara.device.id";
 const KEY_INSTRUMENT_IDS = "tiara.instrument.ids";
 const KEY_INSTRUMENT_NAMES = "tiara.instrument.names";
 const KEY_DEFAULT_INSTRUMENT_ID = "tiara.default.instrument.id";
+const KEY_GRAPH_RENDER_MODE = "tiara.graph.render.mode";
 const BROKER_HOST = "pgiatis.dyndns.org";
 const BROKER_PORT_WS = 9001;
 const BROKER_USER = "BisinaSystems";
@@ -20,8 +21,13 @@ let currentBuffer = [];
 const bufferSize = 120;
 let graphDrawPending = false;
 let lastPacketReceiveMs = 0;
-const graphRenderPointBudget = 180;
-const graphInterpolationPxStep = 6;
+let graphRenderPointBudget = 180;
+let graphInterpolationPxStep = 6;
+const GRAPH_RENDER_MODES = {
+  accuracy: { budget: 300, pxStep: 3 },
+  smooth: { budget: 180, pxStep: 6 },
+  performance: { budget: 96, pxStep: 10 }
+};
 let instrumentScanActive = false;
 let instrumentScanTimer = null;
 let instrumentScanKnownIds = new Set();
@@ -926,6 +932,29 @@ function pushCurrentSamples(values) {
   scheduleGraphDraw();
 }
 
+function setGraphRenderMode(mode, persist = true) {
+  const safeMode = GRAPH_RENDER_MODES[mode] ? mode : "smooth";
+  const cfg = GRAPH_RENDER_MODES[safeMode];
+  graphRenderPointBudget = cfg.budget;
+  graphInterpolationPxStep = cfg.pxStep;
+
+  if (persist) {
+    localStorage.setItem(KEY_GRAPH_RENDER_MODE, safeMode);
+  }
+
+  const select = $("graph-mode");
+  if (select && select.value !== safeMode) {
+    select.value = safeMode;
+  }
+
+  scheduleGraphDraw();
+}
+
+function initGraphRenderMode() {
+  const saved = localStorage.getItem(KEY_GRAPH_RENDER_MODE) || "smooth";
+  setGraphRenderMode(saved, false);
+}
+
 function clampGraphValue(value) {
   return Math.max(-1000, Math.min(1000, value));
 }
@@ -1686,6 +1715,13 @@ function bootstrap() {
   const manageCloseBtn = $("instrument-manager-close-btn");
   if (manageCloseBtn) manageCloseBtn.addEventListener("click", closeInstrumentManager);
 
+  const graphMode = $("graph-mode");
+  if (graphMode) {
+    graphMode.addEventListener("change", () => {
+      setGraphRenderMode(graphMode.value, true);
+    });
+  }
+
   const input = $("instrument-input");
   if (input) {
     input.addEventListener("keydown", (event) => {
@@ -1713,6 +1749,7 @@ function bootstrap() {
   }
 
   buildGraphLegend();
+  initGraphRenderMode();
   drawCurrentGraph();
   drawWaveformGlyph(0);
   updateOutputButton(false);
