@@ -23,15 +23,27 @@ let lastPacketReceiveMs = 0;
 let instrumentScanActive = false;
 let instrumentScanTimer = null;
 let instrumentScanKnownIds = new Set();
+let instrumentScanDiscoveredIds = new Set();
 let instrumentScanFoundIds = new Set();
 let instrumentScanClient = null;
 let instrumentScanUsesPrimaryClient = false;
 let instrumentScanLastResults = [];
 
 const INSTRUMENT_SCAN_TOPICS = [
-  `${TOPIC_ROOT}/+/state/snapshot`,
-  `${TOPIC_ROOT}/+/sensors/current_measurement`,
-  `${TOPIC_ROOT}/+/sensors/current_packet`
+  `${TOPIC_ROOT}/+/state/snapshot`
+];
+
+const TIARA_SNAPSHOT_SIGNATURE_KEYS = [
+  "cur",
+  "unit",
+  "range",
+  "auto",
+  "output",
+  "set_current",
+  "set_unit",
+  "frequency",
+  "waveform_offset",
+  "samples"
 ];
 
 function extractInstrumentIdFromTopic(topic) {
@@ -40,6 +52,32 @@ function extractInstrumentIdFromTopic(topic) {
   if (parts.length < 2) return "";
   if (parts[0] !== TOPIC_ROOT) return "";
   return normalizeUniqueId(parts[1]);
+}
+
+function isLikelyTiaraSnapshot(topic, payloadText) {
+  if (typeof topic !== "string" || !topic.endsWith("/state/snapshot")) {
+    return false;
+  }
+
+  let snapshot = null;
+  try {
+    snapshot = JSON.parse(String(payloadText || "{}"));
+  } catch (_) {
+    return false;
+  }
+
+  if (!snapshot || typeof snapshot !== "object") {
+    return false;
+  }
+
+  let matches = 0;
+  for (const key of TIARA_SNAPSHOT_SIGNATURE_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
+      matches += 1;
+    }
+  }
+
+  return matches >= 4;
 }
 
 function setInstrumentScanButtonState() {
@@ -69,23 +107,25 @@ function renderInstrumentScanResultsList() {
   if (instrumentScanLastResults.length === 0) {
     const empty = document.createElement("div");
     empty.className = "instrument-scan-results-empty";
-    empty.textContent = "No new instruments found in this scan.";
+    empty.textContent = "No TIARA instruments were detected in this scan window.";
     list.appendChild(empty);
     return;
   }
 
-  instrumentScanLastResults.forEach((id) => {
+  instrumentScanLastResults.forEach((item) => {
     const row = document.createElement("label");
     row.className = "instrument-scan-results-item";
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.name = "scan-result-id";
-    checkbox.value = id;
-    checkbox.checked = true;
+    checkbox.value = item.id;
+    checkbox.checked = !item.isKnown;
+    checkbox.disabled = item.isKnown;
 
     const text = document.createElement("span");
-    text.textContent = id.toUpperCase();
+    const suffix = item.isKnown ? " (already added)" : "";
+    text.textContent = `${item.id.toUpperCase()}${suffix}`;
 
     row.appendChild(checkbox);
     row.appendChild(text);
@@ -173,30 +213,40 @@ function stopInstrumentScan() {
   }
 
   const foundIds = Array.from(instrumentScanFoundIds).sort();
+  const discoveredIds = Array.from(instrumentScanDiscoveredIds).sort();
   const foundCount = foundIds.length;
   instrumentScanActive = false;
   instrumentScanKnownIds = new Set();
+  instrumentScanDiscoveredIds = new Set();
   instrumentScanFoundIds = new Set();
   instrumentScanClient = null;
   instrumentScanUsesPrimaryClient = false;
   setInstrumentScanButtonState();
 
-  if (foundCount > 0) {
-    instrumentScanLastResults = foundIds;
-    setInstrumentScanStatus(`Scan complete: found ${foundCount} new instrument(s). Select which to add.`);
-    setFoot(`Scan complete: found ${foundCount} new instrument(s)`);
-    openInstrumentScanResultsModal();
+  if (discoveredIds.length > 0) {
+    instrumentScanLastResults = discoveredIds.map((id) => ({
+      id,
+      isKnown: !foundIds.includes(id)
+    }));
+
+    setInstrumentScanStatus(`Scan complete: found ${discoveredIds.length} instrument(s), ${foundCount} new.`);
+    setFoot(`Scan complete: found ${discoveredIds.length} instrument(s), ${foundCount} new`);
   } else {
     instrumentScanLastResults = [];
     setInstrumentScanStatus("Scan complete: no new instruments detected.");
     setFoot("Scan complete: no new instruments detected");
   }
+
+  openInstrumentScanResultsModal();
 }
 
-function processInstrumentScanTopic(topic) {
+function processInstrumentScanTopic(topic, payloadText) {
   if (!instrumentScanActive) return;
+  if (!isLikelyTiaraSnapshot(topic, payloadText)) return;
+
   const id = extractInstrumentIdFromTopic(topic);
   if (!id) return;
+  instrumentScanDiscoveredIds.add(id);
   if (instrumentScanKnownIds.has(id)) return;
   if (instrumentScanFoundIds.has(id)) return;
 
@@ -266,8 +316,9 @@ function startStandaloneInstrumentScan() {
 
     scanClient.on("connect", () => {
       connected = true;
-      scanClient.on("message", (topic) => {
-        processInstrumentScanTopic(topic);
+      scanClient.on("message", (topic, payloadBuf) => {
+        const payload = new TextDecoder().decode(payloadBuf);
+        processInstrumentScanTopic(topic, payload);
       });
       beginInstrumentScanWithClient(scanClient, false);
     });
@@ -299,6 +350,7 @@ function startInstrumentScan() {
 
   const knownIds = loadKnownInstrumentIds();
   instrumentScanKnownIds = new Set(knownIds);
+  instrumentScanDiscoveredIds = new Set();
   instrumentScanFoundIds = new Set();
   instrumentScanLastResults = [];
   instrumentScanActive = true;
@@ -1060,9 +1112,8 @@ function applyState(data) {
 }
 
 function onMqttMessage(topic, payloadBuf) {
-  processInstrumentScanTopic(topic);
-
   const payload = new TextDecoder().decode(payloadBuf);
+  processInstrumentScanTopic(topic, payload);
 
   if (topic === `${topicBase}/state/snapshot`) {
     try {
