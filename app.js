@@ -586,6 +586,41 @@ function drawCurrentGraph() {
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  // Draw a light reference grid so waveform changes are easier to read.
+  const gridTop = 1000;
+  const gridBottom = -1000;
+  const gridStep = 200;
+  const gridRange = gridTop - gridBottom;
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(158, 201, 255, 0.16)";
+  ctx.lineWidth = 1;
+
+  for (let v = gridTop; v >= gridBottom; v -= gridStep) {
+    const y = ((gridTop - v) / gridRange) * canvas.height;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(canvas.width, y);
+    ctx.stroke();
+  }
+
+  const verticalDivisions = 8;
+  for (let i = 0; i <= verticalDivisions; i++) {
+    const x = (i / verticalDivisions) * canvas.width;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, canvas.height);
+    ctx.stroke();
+  }
+
+  const zeroY = ((gridTop - 0) / gridRange) * canvas.height;
+  ctx.strokeStyle = "rgba(158, 201, 255, 0.3)";
+  ctx.beginPath();
+  ctx.moveTo(0, zeroY);
+  ctx.lineTo(canvas.width, zeroY);
+  ctx.stroke();
+  ctx.restore();
+
   const points = currentBuffer.length;
   if (points === 0) return;
 
