@@ -1544,6 +1544,13 @@ function setBrightness(value) {
 function showInfo() {
   const instrumentId = getInstrumentDisplayName(websiteUniqueId || "--");
   const infoIp = latestState.ip || (websiteUniqueId ? `piot-${websiteUniqueId}.local` : "--");
+  const infoIpText = String(infoIp || "--").trim();
+  const infoIpHref = (infoIpText && infoIpText !== "--")
+    ? (infoIpText.startsWith("http://") || infoIpText.startsWith("https://") ? infoIpText : `http://${infoIpText}`)
+    : "";
+  const infoIpHtml = infoIpHref
+    ? `<a href="${infoIpHref}" target="_blank" rel="noopener noreferrer">${infoIpText}</a>`
+    : infoIpText;
   const infoSsid = latestState.ssid || "--";
   const hasRssi = typeof latestState.rssi !== "undefined" && latestState.rssi !== null && latestState.rssi !== "";
   const infoRssi = hasRssi ? latestState.rssi : "--";
@@ -1565,7 +1572,7 @@ function showInfo() {
     `<b>Firmware:</b> ${firmwareVersion}`,
     `<b>Instrument ID:</b> ${instrumentId}`,
     `<b>Serial #:</b> ${serialNumber}`,
-    `<b>IP Address:</b> ${infoIp}`,
+    `<b>IP Address:</b> ${infoIpHtml}`,
     `<b>Connected To:</b> ${infoSsid}`,
     `<b>Signal:</b> ${infoRssi} dBm`,
     `<b>Current:</b> ${currentText} ${currentUnit}`,
