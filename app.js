@@ -5,7 +5,6 @@ const KEY_DEVICE_ID = "tiara.device.id";
 const KEY_INSTRUMENT_IDS = "tiara.instrument.ids";
 const KEY_INSTRUMENT_NAMES = "tiara.instrument.names";
 const KEY_DEFAULT_INSTRUMENT_ID = "tiara.default.instrument.id";
-const KEY_GRAPH_RENDER_MODE = "tiara.graph.render.mode";
 const BROKER_HOST = "pgiatis.dyndns.org";
 const BROKER_PORT_WS = 9001;
 const BROKER_USER = "BisinaSystems";
@@ -21,16 +20,8 @@ let currentBuffer = [];
 const bufferSize = 512;
 let graphDrawPending = false;
 let lastPacketReceiveMs = 0;
-let graphRenderPointBudget = 180;
-let graphInterpolationPxStep = 6;
-let currentGraphMode = "smooth";
-let graphWindowPoints = 160;
-const GRAPH_RENDER_MODES = {
-  accuracy: { budget: 320, pxStep: 2, windowPoints: 320 },
-  smooth: { budget: 180, pxStep: 6, windowPoints: 160 },
-  performance: { budget: 84, pxStep: 12, windowPoints: 72 },
-  ideal: { budget: 260, pxStep: 4, windowPoints: 220 }
-};
+const GRAPH_MIN_FREQ_HZ = 0.1;
+const GRAPH_MIN_CYCLES_ON_SCREEN = 4;
 const graphSignalState = {
   waveformType: 0,
   frequency: 0,
@@ -941,31 +932,6 @@ function pushCurrentSamples(values) {
   scheduleGraphDraw();
 }
 
-function setGraphRenderMode(mode, persist = true) {
-  const safeMode = GRAPH_RENDER_MODES[mode] ? mode : "smooth";
-  const cfg = GRAPH_RENDER_MODES[safeMode];
-  graphRenderPointBudget = cfg.budget;
-  graphInterpolationPxStep = cfg.pxStep;
-  graphWindowPoints = cfg.windowPoints;
-  currentGraphMode = safeMode;
-
-  if (persist) {
-    localStorage.setItem(KEY_GRAPH_RENDER_MODE, safeMode);
-  }
-
-  const select = $("graph-mode");
-  if (select && select.value !== safeMode) {
-    select.value = safeMode;
-  }
-
-  scheduleGraphDraw();
-}
-
-function initGraphRenderMode() {
-  const saved = localStorage.getItem(KEY_GRAPH_RENDER_MODE) || "smooth";
-  setGraphRenderMode(saved, false);
-}
-
 function clampGraphValue(value) {
   return Math.max(-1000, Math.min(1000, value));
 }
@@ -989,8 +955,47 @@ function waveformValue(type, phase) {
   }
 }
 
+function sampledWaveformValue(type, phase, sampleCount) {
+  if (type === 0) return 0;
+
+  const samples = Math.max(8, Math.round(sampleCount));
+  const frac = phase - Math.floor(phase);
+  const pos = frac * samples;
+  const i0 = Math.floor(pos) % samples;
+  const i1 = (i0 + 1) % samples;
+  const t = pos - i0;
+  const v0 = waveformValue(type, i0 / samples);
+  const v1 = waveformValue(type, i1 / samples);
+  return v0 + (v1 - v0) * t;
+}
+
+function getGraphFrequencyHz() {
+  const raw = Number(graphSignalState.frequency);
+  return Number.isFinite(raw) && raw > 0 ? raw : GRAPH_MIN_FREQ_HZ;
+}
+
+function getGraphTimebaseSeconds() {
+  return GRAPH_MIN_CYCLES_ON_SCREEN / getGraphFrequencyHz();
+}
+
+function formatTimebase(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "--";
+  if (seconds < 1) {
+    const ms = seconds * 1000;
+    return `${ms >= 100 ? ms.toFixed(0) : ms.toFixed(1)} ms`;
+  }
+  return `${seconds >= 10 ? seconds.toFixed(1) : seconds.toFixed(2)} s`;
+}
+
+function refreshTimebaseLabel() {
+  const el = $("timebase-value");
+  if (!el) return;
+  const seconds = getGraphTimebaseSeconds();
+  el.innerText = formatTimebase(seconds);
+}
+
 function buildIdealRenderPoints(values, width, height) {
-  if (values.length < 2) return buildRenderPoints(values, width, height);
+  if (values.length === 0) return [];
 
   let minVal = Infinity;
   let maxVal = -Infinity;
@@ -1002,7 +1007,7 @@ function buildIdealRenderPoints(values, width, height) {
   }
 
   if (!Number.isFinite(minVal) || !Number.isFinite(maxVal)) {
-    return buildRenderPoints(values, width, height);
+    return [];
   }
 
   const amplitude = Math.max((maxVal - minVal) / 2, 0.5);
@@ -1010,77 +1015,25 @@ function buildIdealRenderPoints(values, width, height) {
   const offsetPct = Number.isFinite(Number(graphSignalState.offset)) ? Number(graphSignalState.offset) : 0;
   const center = clampGraphValue(baseCenter + amplitude * (offsetPct / 100));
   const periodSamples = Math.max(8, Math.round(Number(graphSignalState.samples) || 64));
-  const cyclesAcrossWindow = Math.max(1, values.length / periodSamples);
-  const frequency = Number(graphSignalState.frequency);
-  const phaseOffset = Number.isFinite(frequency) && frequency > 0
-    ? (Date.now() / 1000 * frequency) % 1
-    : 0;
+  const frequency = getGraphFrequencyHz();
+  const timebaseSeconds = getGraphTimebaseSeconds();
   const waveformType = normalizeWaveformType(graphSignalState.waveformType);
 
   const outputPoints = Math.max(280, Math.floor(width));
+  const nowSec = Date.now() / 1000;
+  const startSec = nowSec - timebaseSeconds;
   const out = [];
   for (let i = 0; i < outputPoints; i++) {
-    const x = (i / (outputPoints - 1)) * width;
-    const phase = phaseOffset + (i / (outputPoints - 1)) * cyclesAcrossWindow;
-    const v = clampGraphValue(center + amplitude * waveformValue(waveformType, phase));
+    const ratio = i / (outputPoints - 1);
+    const x = ratio * width;
+    const tSec = startSec + ratio * timebaseSeconds;
+    const phase = tSec * frequency;
+    const shaped = sampledWaveformValue(waveformType, phase, periodSamples);
+    const v = clampGraphValue(center + amplitude * shaped);
     const y = ((1000 - v) / 2000) * height;
     out.push({ x, y });
   }
   return out;
-}
-
-function buildRenderIndices(totalPoints, maxPoints) {
-  if (totalPoints <= maxPoints) {
-    return Array.from({ length: totalPoints }, (_, i) => i);
-  }
-
-  const out = [0];
-  const lastIndex = totalPoints - 1;
-  const step = lastIndex / (maxPoints - 1);
-
-  for (let i = 1; i < maxPoints - 1; i++) {
-    const idx = Math.round(i * step);
-    if (idx > out[out.length - 1] && idx < lastIndex) {
-      out.push(idx);
-    }
-  }
-
-  out.push(lastIndex);
-  return out;
-}
-
-function buildRenderPoints(values, width, height) {
-  const points = values.length;
-  if (points === 0) return [];
-
-  const drawCount = Math.max(2, Math.min(graphRenderPointBudget, points));
-  const indices = buildRenderIndices(points, drawCount);
-  const anchors = indices.map((idx) => {
-    const x = points > 1 ? (idx / (points - 1)) * width : 0;
-    const value = clampGraphValue(Number(values[idx]));
-    const y = ((1000 - value) / 2000) * height;
-    return { x, y };
-  });
-
-  if (anchors.length < 2) return anchors;
-
-  const interpolated = [anchors[0]];
-  for (let i = 0; i < anchors.length - 1; i++) {
-    const a = anchors[i];
-    const b = anchors[i + 1];
-    const segmentPx = Math.abs(b.x - a.x);
-    const steps = Math.max(1, Math.ceil(segmentPx / graphInterpolationPxStep));
-
-    for (let s = 1; s <= steps; s++) {
-      const t = s / steps;
-      interpolated.push({
-        x: a.x + (b.x - a.x) * t,
-        y: a.y + (b.y - a.y) * t
-      });
-    }
-  }
-
-  return interpolated;
 }
 
 function drawCurrentGraph() {
@@ -1124,13 +1077,11 @@ function drawCurrentGraph() {
   ctx.stroke();
   ctx.restore();
 
-  const sourceValues = currentBuffer.slice(-graphWindowPoints);
+  const sourceValues = currentBuffer;
   const points = sourceValues.length;
   if (points === 0) return;
 
-  const renderPoints = currentGraphMode === "ideal"
-    ? buildIdealRenderPoints(sourceValues, canvas.width, canvas.height)
-    : buildRenderPoints(sourceValues, canvas.width, canvas.height);
+  const renderPoints = buildIdealRenderPoints(sourceValues, canvas.width, canvas.height);
   if (renderPoints.length === 0) return;
 
   ctx.strokeStyle = "#3cf";
@@ -1228,20 +1179,32 @@ function updateSourceButton(source) {
 function applyState(data) {
   latestState = { ...latestState, ...data };
 
+  let graphParamsChanged = false;
+
   if (typeof data.waveform_type !== "undefined") {
     graphSignalState.waveformType = normalizeWaveformType(data.waveform_type);
+    graphParamsChanged = true;
   }
   if (typeof data.frequency !== "undefined") {
     const f = Number(data.frequency);
-    if (Number.isFinite(f)) graphSignalState.frequency = f;
+    if (Number.isFinite(f)) {
+      graphSignalState.frequency = f;
+      graphParamsChanged = true;
+    }
   }
   if (typeof data.waveform_offset !== "undefined") {
     const o = Number(data.waveform_offset);
-    if (Number.isFinite(o)) graphSignalState.offset = o;
+    if (Number.isFinite(o)) {
+      graphSignalState.offset = o;
+      graphParamsChanged = true;
+    }
   }
   if (typeof data.samples !== "undefined") {
     const s = Number(data.samples);
-    if (Number.isFinite(s) && s > 0) graphSignalState.samples = s;
+    if (Number.isFinite(s) && s > 0) {
+      graphSignalState.samples = s;
+      graphParamsChanged = true;
+    }
   }
 
   if (typeof data.cur !== "undefined") {
@@ -1287,6 +1250,11 @@ function applyState(data) {
       $("brightness").value = b;
       $("brightness-label").innerText = `${b}%`;
     }
+  }
+
+  if (graphParamsChanged || typeof data.frequency !== "undefined") {
+    refreshTimebaseLabel();
+    scheduleGraphDraw();
   }
 }
 
@@ -1504,6 +1472,7 @@ function showInfo() {
   const freqText = $("freq-value").innerText || "--";
   const offsetText = $("offset-value").innerText || "--";
   const sampleText = $("samples-value").innerText || "--";
+  const timebaseText = $("timebase-value").innerText || "--";
 
   const html = [
     `<b>Firmware:</b> ${firmwareVersion}`,
@@ -1521,7 +1490,8 @@ function showInfo() {
     `<b>Waveform:</b> ${waveformText}`,
     `<b>Frequency:</b> ${freqText} Hz`,
     `<b>Offset:</b> ${offsetText}%`,
-    `<b>Samples:</b> ${sampleText}`
+    `<b>Samples:</b> ${sampleText}`,
+    `<b>Timebase:</b> ${timebaseText}`
   ].join("<br>");
 
   $("info-content").innerHTML = html;
@@ -1806,13 +1776,6 @@ function bootstrap() {
   const manageCloseBtn = $("instrument-manager-close-btn");
   if (manageCloseBtn) manageCloseBtn.addEventListener("click", closeInstrumentManager);
 
-  const graphMode = $("graph-mode");
-  if (graphMode) {
-    graphMode.addEventListener("change", () => {
-      setGraphRenderMode(graphMode.value, true);
-    });
-  }
-
   const input = $("instrument-input");
   if (input) {
     input.addEventListener("keydown", (event) => {
@@ -1840,7 +1803,7 @@ function bootstrap() {
   }
 
   buildGraphLegend();
-  initGraphRenderMode();
+  refreshTimebaseLabel();
   drawCurrentGraph();
   drawWaveformGlyph(0);
   updateOutputButton(false);
