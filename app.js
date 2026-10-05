@@ -20,6 +20,8 @@ let currentBuffer = [];
 const bufferSize = 120;
 let graphDrawPending = false;
 let lastPacketReceiveMs = 0;
+const graphRenderPointBudget = 180;
+const graphInterpolationPxStep = 6;
 let instrumentScanActive = false;
 let instrumentScanTimer = null;
 let instrumentScanKnownIds = new Set();
@@ -924,6 +926,64 @@ function pushCurrentSamples(values) {
   scheduleGraphDraw();
 }
 
+function clampGraphValue(value) {
+  return Math.max(-1000, Math.min(1000, value));
+}
+
+function buildRenderIndices(totalPoints, maxPoints) {
+  if (totalPoints <= maxPoints) {
+    return Array.from({ length: totalPoints }, (_, i) => i);
+  }
+
+  const out = [0];
+  const lastIndex = totalPoints - 1;
+  const step = lastIndex / (maxPoints - 1);
+
+  for (let i = 1; i < maxPoints - 1; i++) {
+    const idx = Math.round(i * step);
+    if (idx > out[out.length - 1] && idx < lastIndex) {
+      out.push(idx);
+    }
+  }
+
+  out.push(lastIndex);
+  return out;
+}
+
+function buildRenderPoints(values, width, height) {
+  const points = values.length;
+  if (points === 0) return [];
+
+  const drawCount = Math.max(2, Math.min(graphRenderPointBudget, points));
+  const indices = buildRenderIndices(points, drawCount);
+  const anchors = indices.map((idx) => {
+    const x = points > 1 ? (idx / (points - 1)) * width : 0;
+    const value = clampGraphValue(Number(values[idx]));
+    const y = ((1000 - value) / 2000) * height;
+    return { x, y };
+  });
+
+  if (anchors.length < 2) return anchors;
+
+  const interpolated = [anchors[0]];
+  for (let i = 0; i < anchors.length - 1; i++) {
+    const a = anchors[i];
+    const b = anchors[i + 1];
+    const segmentPx = Math.abs(b.x - a.x);
+    const steps = Math.max(1, Math.ceil(segmentPx / graphInterpolationPxStep));
+
+    for (let s = 1; s <= steps; s++) {
+      const t = s / steps;
+      interpolated.push({
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t
+      });
+    }
+  }
+
+  return interpolated;
+}
+
 function drawCurrentGraph() {
   const canvas = $("graph-canvas");
   if (!canvas) return;
@@ -968,21 +1028,22 @@ function drawCurrentGraph() {
   const points = currentBuffer.length;
   if (points === 0) return;
 
+  const renderPoints = buildRenderPoints(currentBuffer, canvas.width, canvas.height);
+  if (renderPoints.length === 0) return;
+
   ctx.strokeStyle = "#3cf";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  if (points === 1) {
-    const y = ((1000 - currentBuffer[0]) / 2000) * canvas.height;
+  if (renderPoints.length === 1) {
+    const y = renderPoints[0].y;
     ctx.moveTo(0, y);
     ctx.lineTo(canvas.width, y);
     ctx.stroke();
     return;
   }
 
-  for (let i = 0; i < points; i++) {
-    const val = currentBuffer[i];
-    const y = ((1000 - val) / 2000) * canvas.height;
-    const x = (i / (points - 1)) * canvas.width;
+  for (let i = 0; i < renderPoints.length; i++) {
+    const { x, y } = renderPoints[i];
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
