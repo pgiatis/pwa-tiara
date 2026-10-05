@@ -994,6 +994,65 @@ function refreshTimebaseLabel() {
   el.innerText = formatTimebase(seconds);
 }
 
+function buildMeasuredRenderPoints(values, width, height) {
+  const points = values.length;
+  if (points === 0) return [];
+
+  const maxPoints = Math.max(2, Math.floor(width));
+  const step = Math.max(1, Math.ceil(points / maxPoints));
+  const out = [];
+
+  for (let idx = 0; idx < points; idx += step) {
+    const value = clampGraphValue(Number(values[idx]));
+    if (!Number.isFinite(value)) continue;
+    const x = points > 1 ? (idx / (points - 1)) * width : 0;
+    const y = ((1000 - value) / 2000) * height;
+    out.push({ x, y });
+  }
+
+  const lastIdx = points - 1;
+  const lastVal = clampGraphValue(Number(values[lastIdx]));
+  if (Number.isFinite(lastVal) && (out.length === 0 || out[out.length - 1].x < width)) {
+    out.push({
+      x: points > 1 ? width : 0,
+      y: ((1000 - lastVal) / 2000) * height
+    });
+  }
+
+  return out;
+}
+
+function buildRollingAverageRenderPoints(values, width, height, windowSize = 11) {
+  const points = values.length;
+  if (points === 0) return [];
+
+  const maxPoints = Math.max(2, Math.floor(width));
+  const step = Math.max(1, Math.ceil(points / maxPoints));
+  const half = Math.max(1, Math.floor(windowSize / 2));
+  const out = [];
+
+  for (let idx = 0; idx < points; idx += step) {
+    let sum = 0;
+    let count = 0;
+    const start = Math.max(0, idx - half);
+    const end = Math.min(points - 1, idx + half);
+    for (let j = start; j <= end; j++) {
+      const v = clampGraphValue(Number(values[j]));
+      if (!Number.isFinite(v)) continue;
+      sum += v;
+      count++;
+    }
+    if (count === 0) continue;
+
+    const avg = sum / count;
+    const x = points > 1 ? (idx / (points - 1)) * width : 0;
+    const y = ((1000 - avg) / 2000) * height;
+    out.push({ x, y });
+  }
+
+  return out;
+}
+
 function buildIdealRenderPoints(values, width, height) {
   if (values.length === 0) return [];
 
@@ -1081,11 +1140,15 @@ function drawCurrentGraph() {
   const points = sourceValues.length;
   if (points === 0) return;
 
-  const renderPoints = buildIdealRenderPoints(sourceValues, canvas.width, canvas.height);
+  const waveformType = normalizeWaveformType(graphSignalState.waveformType);
+  const isDc = waveformType === 0;
+  const renderPoints = isDc
+    ? buildMeasuredRenderPoints(sourceValues, canvas.width, canvas.height)
+    : buildIdealRenderPoints(sourceValues, canvas.width, canvas.height);
   if (renderPoints.length === 0) return;
 
   ctx.strokeStyle = "#3cf";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = isDc ? 2.8 : 2;
   ctx.beginPath();
   if (renderPoints.length === 1) {
     const y = renderPoints[0].y;
@@ -1101,6 +1164,21 @@ function drawCurrentGraph() {
     else ctx.lineTo(x, y);
   }
   ctx.stroke();
+
+  if (isDc) {
+    const avgPoints = buildRollingAverageRenderPoints(sourceValues, canvas.width, canvas.height, 13);
+    if (avgPoints.length > 1) {
+      ctx.strokeStyle = "rgba(89, 227, 255, 0.9)";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      for (let i = 0; i < avgPoints.length; i++) {
+        const { x, y } = avgPoints[i];
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+  }
 }
 
 function drawWaveformGlyph(type) {
