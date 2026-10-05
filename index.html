@@ -3,118 +3,207 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#111827">
-  <title>TIARA-1000 MQTT Console</title>
-  <link rel="manifest" href="manifest.json?v=20261003a">
-  <link rel="stylesheet" href="style.css?v=20261003a">
+  <meta name="theme-color" content="#071527">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TIARA">
+  <meta name="application-name" content="TIARA">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TIARA">
+  <title>TIARA-1000 Control Panel</title>
+  <link rel="manifest" href="manifest.json?v=20261004b">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=20261004b">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png?v=20261004b">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=20261004b">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=20260915b">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png?v=20260915b">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=20260915b">
+  <link rel="stylesheet" href="style.css?v=20261004b">
 </head>
 <body>
-  <main class="app-shell">
-    <header class="topbar">
-      <h1>TIARA-1000</h1>
-      <div class="top-actions">
-        <button id="openConfig" class="config-btn">MQTT Settings</button>
-        <div id="statusDot" class="status-dot"></div>
-      </div>
-    </header>
+  <div class="main-panel">
+    <div class="title-row">
+      <span id="hw-led" class="led"></span>
+      <h1>TIARA-1000 Control Panel</h1>
+    </div>
 
-    <section class="panel instrument-panel">
-      <div class="instrument-row">
-        <label for="instrumentSelect">Instrument</label>
-        <select id="instrumentSelect"></select>
-        <input id="instrumentIdInput" type="text" placeholder="Scan new QR or type ID">
-        <button id="addInstrumentBtn">Add</button>
-        <input id="instrumentNameInput" type="text" placeholder="Nickname for selected instrument">
-        <button id="saveInstrumentNameBtn">Save Name</button>
-        <button id="setCurrentDefaultBtn">Make Default</button>
-        <button id="exportInstrumentsBtn">Export</button>
-        <input id="importInstrumentsInput" type="file" accept="application/json" hidden>
-        <button id="importInstrumentsBtn">Import</button>
-        <button id="openInstrumentManagerBtn">Manage</button>
-      </div>
-    </section>
+    <div class="unit-switch-row">
+      <label for="instrument-select">Instrument</label>
+      <select id="instrument-select"></select>
+      <input id="instrument-input" type="text" placeholder="Scan new QR or type ID">
+      <button class="btn blue unit-add-btn" id="instrument-add-btn">Add</button>
+      <input id="instrument-name-input" type="text" placeholder="Nickname for selected instrument">
+      <button class="btn blue unit-add-btn" id="instrument-name-save-btn">Save Name</button>
+      <button class="btn blue unit-add-btn" id="instrument-default-btn">Make Default</button>
+      <button class="btn blue unit-add-btn" id="instrument-export-btn">Export</button>
+      <input id="instrument-import-input" type="file" accept="application/json" hidden>
+      <button class="btn blue unit-add-btn" id="instrument-import-btn">Import</button>
+      <button class="btn blue unit-add-btn" id="instrument-manage-btn">Manage</button>
+    </div>
 
-    <section class="panel">
-      <div class="kpi">
-        <div class="kpi-label">Measured Current</div>
-        <div id="cur" class="kpi-value">--</div>
+    <div class="status-row">
+      <div class="status-box">
+        <span class="status-label">Auto Mode</span>
+        <div id="auto-mode" class="status-value">--</div>
       </div>
-      <div class="kpi-grid">
-        <div><span class="muted">Range:</span> <span id="range">--</span></div>
-        <div><span class="muted">Auto:</span> <span id="auto">--</span></div>
-        <div><span class="muted">Output:</span> <span id="output">--</span></div>
-        <div><span class="muted">Source:</span> <span id="source">--</span></div>
+      <div class="status-box">
+        <span class="status-label">TIA Range</span>
+        <div id="tia-range" class="status-value">--</div>
       </div>
-    </section>
-
-    <section class="panel controls">
-      <div class="row">
-        <button data-cmd="power">Power</button>
-        <button data-cmd="auto">Auto</button>
-        <button data-cmd="range:up">Range +</button>
-        <button data-cmd="range:down">Range -</button>
-        <button data-cmd="free_run">Free Run</button>
-        <button data-cmd="source">Int/Ext</button>
+      <div class="status-box">
+        <span class="status-label">Generator Range</span>
+        <div id="gen-range" class="status-value">--</div>
       </div>
-      <div class="row">
-        <button id="outputOn">Output ON</button>
-        <button id="outputOff">Output OFF</button>
-      </div>
-      <div class="row set-current">
-        <input id="setVal" type="number" step="0.001" placeholder="Set current">
-        <select id="setUnit">
-          <option>mA</option>
-          <option selected>uA</option>
-          <option>nA</option>
-        </select>
-        <button id="applyCurrent">Apply</button>
-      </div>
-      <div class="row set-current">
-        <label for="brightness" class="muted">Brightness</label>
-        <input id="brightness" type="range" min="0" max="100" value="50">
-        <span id="brightnessValue">50%</span>
-      </div>
-    </section>
-
-    <section class="panel graph-panel">
-      <div class="graph-row">
-        <div id="graphLegend" class="graph-legend"></div>
-        <div class="graph-wrap">
-          <canvas id="currentGraph" class="graph-canvas" width="560" height="240"></canvas>
-        </div>
-      </div>
-      <div id="foot" class="foot">Bootstrapping...</div>
-    </section>
-  </main>
-
-  <dialog id="cfgDialog">
-    <form method="dialog" id="cfgForm">
-      <h2>MQTT Configuration</h2>
-      <label>BROKER_HOST<input name="BROKER_HOST" required></label>
-      <label>BROKER_PORT<input name="BROKER_PORT" type="number" min="1" max="65535" required></label>
-      <label>MQTT_USERNAME<input name="MQTT_USERNAME"></label>
-      <label>MQTT_PASSWORD<input name="MQTT_PASSWORD" type="password"></label>
-      <label>MQTT_CLIENT_PREFIX<input name="MQTT_CLIENT_PREFIX"></label>
-      <label>PROJECT_TOPIC_ROOT<input name="PROJECT_TOPIC_ROOT"></label>
-      <label>WEBSITE_UNIQUE_ID<input name="WEBSITE_UNIQUE_ID"></label>
-      <div class="row">
-        <button id="saveCfg" value="default">Save</button>
-        <button value="cancel">Close</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="instrumentManagerDialog">
-    <div class="instrument-manager">
-      <h2>Manage Instruments</h2>
-      <div id="instrumentManagerList" class="instrument-manager-list"></div>
-      <div class="row">
-        <button id="closeInstrumentManagerBtn" value="default">Close</button>
+      <div class="status-box">
+        <span class="status-label">Output</span>
+        <div id="output-state" class="status-value">--</div>
       </div>
     </div>
-  </dialog>
+
+    <div class="row">
+      <div class="box">
+        <div class="label">Measured Current</div>
+        <div class="value">
+          <span id="current-value">--</span>
+          <span id="current-unit" class="unit-text">--</span>
+        </div>
+      </div>
+
+      <div class="box">
+        <div class="label">Set Current</div>
+        <div class="value set-value-row">
+          <span id="set-current-value">--</span>
+          <span id="set-current-unit" class="unit-text">--</span>
+          <canvas id="waveform-glyph" width="32" height="16"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="row row-meta">
+      <div class="meta-block">
+        <span class="meta-label">Frequency:</span>
+        <span id="freq-value">--</span>
+        <span class="meta-suffix">Hz</span>
+      </div>
+      <div class="meta-block">
+        <span class="meta-label">Offset:</span>
+        <span id="offset-value">--</span>
+        <span class="meta-suffix">%</span>
+      </div>
+      <div class="meta-block">
+        <span class="meta-label">Samples:</span>
+        <span id="samples-value">--</span>
+      </div>
+    </div>
+
+    <div class="graph-row">
+      <div id="graph-legend"></div>
+      <div class="graph" id="graph-placeholder">
+        <canvas class="graph-canvas" id="graph-canvas" width="560" height="260"></canvas>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <button class="btn red" onclick="sendCmd('power')">Power</button>
+      <button id="output-btn" class="btn off" onclick="toggleOutput()">Output OFF</button>
+      <button class="btn attention" onclick="sendCmd('auto')">Auto Range</button>
+      <button class="btn blue" onclick="sendCmd('range:up')">Range ↑</button>
+      <button class="btn blue" onclick="sendCmd('range:down')">Range ↓</button>
+    </div>
+
+    <div class="control-row">
+      <button class="btn attention" onclick="sendCmd('free_run')">Free Run</button>
+      <button class="btn blue" onclick="showInfo()">Info</button>
+      <button class="btn attention" onclick="showSetCurrent()">Set Current</button>
+      <button class="btn blue" onclick="navigateNetwork()">Network</button>
+      <button id="source-btn" class="btn blue" onclick="sendCmd('source')">Int/Ext</button>
+    </div>
+
+    <div class="slider-wrapper">
+      <div class="label">Brightness</div>
+      <input type="range" id="brightness" class="slider" min="0" max="100" oninput="setBrightness(this.value)">
+      <div id="brightness-label">50%</div>
+    </div>
+
+  </div>
+
+  <div id="info-modal" class="modal-lite">
+    <div class="modal-lite-content">
+      <h2>System Information</h2>
+      <div id="info-content"></div>
+      <div class="modal-buttons">
+        <button onclick="hideInfoModal()" class="btn blue">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="modal-lite">
+    <div class="settings-panel">
+      <div class="settings-title">Set Value (Current)</div>
+      <div class="settings-current-row">
+        <div class="settings-current-box">
+          <span>Set Current:</span>
+          <span id="settings-current-value">0.00</span>
+        </div>
+        <div class="unit-btn-row">
+          <button class="unit-btn" data-unit="mA">mA</button>
+          <button class="unit-btn" data-unit="uA">uA</button>
+          <button class="unit-btn" data-unit="nA">nA</button>
+        </div>
+      </div>
+
+      <div class="keypad-grid">
+        <button class="keypad-btn" data-key="1">1</button>
+        <button class="keypad-btn" data-key="2">2</button>
+        <button class="keypad-btn" data-key="3">3</button>
+        <button class="keypad-btn" data-key="4">4</button>
+        <button class="keypad-btn" data-key="5">5</button>
+        <button class="keypad-btn" data-key="6">6</button>
+        <button class="keypad-btn" data-key="7">7</button>
+        <button class="keypad-btn" data-key="8">8</button>
+        <button class="keypad-btn" data-key="9">9</button>
+        <button class="keypad-btn" data-key="0">0</button>
+        <button class="keypad-btn" data-key=".">.</button>
+        <button class="keypad-btn" data-key="+/-">+/-</button>
+        <button class="keypad-btn" data-key="CLR">CLR</button>
+        <button class="keypad-btn" data-key="M+">M+</button>
+        <button class="keypad-btn" data-key="MEM">MEM</button>
+      </div>
+
+      <div class="settings-action-row">
+        <button id="settings-bksp" class="btn blue">BKSP</button>
+        <button id="settings-set" class="btn green">SET</button>
+        <button id="settings-cancel" class="btn red">CANCEL</button>
+      </div>
+
+      <div class="settings-meta-labels">
+        <div>WAVEFORM</div>
+        <div>FREQ (Hz)</div>
+        <div>OFFSET</div>
+        <div>SAMPLES</div>
+      </div>
+
+      <div class="settings-meta-row">
+        <button id="waveform-btn" class="settings-meta-btn settings-meta-yellow">Constant</button>
+        <button id="freq-btn" class="settings-meta-btn settings-meta-blue-dark"><span>200</span></button>
+        <button id="offset-btn" class="settings-meta-btn settings-meta-blue-dark"><span>0%</span></button>
+        <button id="samples-btn" class="settings-meta-btn settings-meta-blue"><span>64</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="instrument-manager-modal" class="modal-lite">
+    <div class="modal-lite-content instrument-manager-modal-content">
+      <h2>Manage Instruments</h2>
+      <div id="instrument-manager-list" class="instrument-manager-list"></div>
+      <div class="modal-buttons">
+        <button id="instrument-manager-close-btn" class="btn blue">Close</button>
+      </div>
+    </div>
+  </div>
 
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-  <script src="app.js?v=20261003a"></script>
+  <script src="app.js?v=20261004b"></script>
 </body>
 </html>
