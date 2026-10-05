@@ -745,10 +745,16 @@ h1 {
   border: none;
   background: transparent;
   overflow: visible;
+  width: 100%;
+  margin-bottom: 10px;
 }
 
 .row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  width: 100%;
+  margin-bottom: 10px;
 }
 
 .status-box,
@@ -761,6 +767,23 @@ h1 {
 
 .status-box {
   border-right: none;
+  min-width: 0;
+  padding: 10px 10px;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
+
+.box {
+  min-width: 0;
+  padding: 10px 10px;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
 }
 
 .status-label,
@@ -873,16 +896,17 @@ h1 {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 4px;
-    margin-bottom: 4px;
+    margin-bottom: 0;
     border: none;
     background: transparent;
     overflow: visible;
   }
 
   .status-box {
-    padding: 5px 4px;
+    padding: 7px 6px;
     min-width: 0;
     border-right: none;
+    min-height: 58px;
   }
 
   .status-box:nth-child(2n) {
@@ -894,7 +918,7 @@ h1 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 4px;
     align-items: stretch;
-    margin-bottom: 4px;
+    margin-bottom: 0;
   }
 
   .status-label,
@@ -907,7 +931,8 @@ h1 {
   }
 
   .box {
-    padding: 8px 6px;
+    padding: 7px 6px;
+    min-height: 58px;
   }
 
   .value {
