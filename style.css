@@ -739,9 +739,16 @@ h1 {
 }
 
 .status-row {
-  border: 1px solid #3b5f83;
-  background: #192739;
-  gap: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  border: none;
+  background: transparent;
+  overflow: visible;
+}
+
+.row {
+  gap: 10px;
 }
 
 .status-box,
@@ -753,7 +760,7 @@ h1 {
 }
 
 .status-box {
-  border-right: 1px solid #334b65;
+  border-right: none;
 }
 
 .status-label,
@@ -875,11 +882,11 @@ h1 {
   .status-box {
     padding: 5px 4px;
     min-width: 0;
-    border-right: 1px solid #334b65;
+    border-right: none;
   }
 
   .status-box:nth-child(2n) {
-    border-right: 1px solid #334b65;
+    border-right: none;
   }
 
   .row {
