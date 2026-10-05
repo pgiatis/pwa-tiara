@@ -214,8 +214,24 @@
         <button class="btn attention unit-add-btn" id="instrument-scan-btn">Scan for Instruments</button>
         <button class="btn blue unit-add-btn" id="instrument-manage-btn">Manage</button>
       </div>
+      <div id="instrument-scan-status" class="instrument-scan-status">Scan to discover TIARA units on MQTT.</div>
       <div class="modal-buttons">
         <button id="connection-close-btn" class="btn blue">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="instrument-scan-results-modal" class="modal-lite">
+    <div class="modal-lite-content instrument-scan-results-modal-content">
+      <h2>Scan Results</h2>
+      <div class="instrument-scan-results-tools">
+        <button id="instrument-scan-select-all-btn" class="btn blue">Select All</button>
+        <button id="instrument-scan-clear-all-btn" class="btn blue">Clear All</button>
+      </div>
+      <div id="instrument-scan-results-list" class="instrument-scan-results-list"></div>
+      <div class="modal-buttons">
+        <button id="instrument-scan-add-selected-btn" class="btn green">Add Selected</button>
+        <button id="instrument-scan-cancel-btn" class="btn blue">Cancel</button>
       </div>
     </div>
   </div>
