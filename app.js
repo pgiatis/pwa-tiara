@@ -941,6 +941,16 @@ function normalizeWaveformType(rawType) {
   return Number.isFinite(t) ? Math.max(0, Math.min(3, Math.round(t))) : 0;
 }
 
+function setGraphWaveformType(rawType) {
+  const nextType = normalizeWaveformType(rawType);
+  if (nextType === graphSignalState.waveformType) return false;
+
+  graphSignalState.waveformType = nextType;
+  currentBuffer.length = 0;
+  scheduleGraphDraw();
+  return true;
+}
+
 function waveformValue(type, phase) {
   const frac = phase - Math.floor(phase);
   switch (type) {
@@ -1260,8 +1270,7 @@ function applyState(data) {
   let graphParamsChanged = false;
 
   if (typeof data.waveform_type !== "undefined") {
-    graphSignalState.waveformType = normalizeWaveformType(data.waveform_type);
-    graphParamsChanged = true;
+    graphParamsChanged = setGraphWaveformType(data.waveform_type) || graphParamsChanged;
   }
   if (typeof data.frequency !== "undefined") {
     const f = Number(data.frequency);
