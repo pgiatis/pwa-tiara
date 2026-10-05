@@ -20,6 +20,100 @@ let currentBuffer = [];
 const bufferSize = 120;
 let graphDrawPending = false;
 let lastPacketReceiveMs = 0;
+let instrumentScanActive = false;
+let instrumentScanTimer = null;
+let instrumentScanSeenIds = new Set();
+let instrumentScanNewCount = 0;
+
+const INSTRUMENT_SCAN_TOPICS = [
+  `${TOPIC_ROOT}/+/state/snapshot`,
+  `${TOPIC_ROOT}/+/sensors/current_measurement`,
+  `${TOPIC_ROOT}/+/sensors/current_packet`
+];
+
+function extractInstrumentIdFromTopic(topic) {
+  const rawTopic = String(topic || "");
+  const parts = rawTopic.split("/");
+  if (parts.length < 2) return "";
+  if (parts[0] !== TOPIC_ROOT) return "";
+  return normalizeUniqueId(parts[1]);
+}
+
+function setInstrumentScanButtonState() {
+  const btn = $("instrument-scan-btn");
+  if (!btn) return;
+  btn.disabled = instrumentScanActive;
+  btn.textContent = instrumentScanActive ? "Scanning..." : "Scan for Instruments";
+}
+
+function stopInstrumentScan() {
+  if (instrumentScanTimer) {
+    clearTimeout(instrumentScanTimer);
+    instrumentScanTimer = null;
+  }
+
+  if (mqttClient && mqttClient.connected) {
+    try {
+      mqttClient.unsubscribe(INSTRUMENT_SCAN_TOPICS);
+    } catch (_) {
+    }
+  }
+
+  const foundCount = instrumentScanNewCount;
+  instrumentScanActive = false;
+  instrumentScanSeenIds = new Set();
+  instrumentScanNewCount = 0;
+  setInstrumentScanButtonState();
+
+  if (foundCount > 0) {
+    renderInstrumentSelector();
+    renderInstrumentManagerList();
+    setFoot(`Scan complete: found ${foundCount} new instrument(s)`);
+  } else {
+    setFoot("Scan complete: no new instruments detected");
+  }
+}
+
+function processInstrumentScanTopic(topic) {
+  if (!instrumentScanActive) return;
+  const id = extractInstrumentIdFromTopic(topic);
+  if (!id) return;
+  if (instrumentScanSeenIds.has(id)) return;
+
+  instrumentScanSeenIds.add(id);
+  addKnownInstrumentId(id);
+  instrumentScanNewCount += 1;
+  renderInstrumentSelector();
+  renderInstrumentManagerList();
+  setFoot(`Scan: found ${instrumentScanNewCount} new instrument(s)`);
+}
+
+function startInstrumentScan() {
+  if (instrumentScanActive) return;
+
+  if (!mqttClient || !mqttClient.connected) {
+    setFoot("Connect to MQTT first, then scan.");
+    return;
+  }
+
+  const knownIds = loadKnownInstrumentIds();
+  instrumentScanSeenIds = new Set(knownIds);
+  instrumentScanNewCount = 0;
+  instrumentScanActive = true;
+  setInstrumentScanButtonState();
+
+  try {
+    mqttClient.subscribe(INSTRUMENT_SCAN_TOPICS);
+  } catch (_) {
+    instrumentScanActive = false;
+    setInstrumentScanButtonState();
+    setFoot("Scan failed: unable to subscribe to discovery topics");
+    return;
+  }
+
+  setFoot("Scanning MQTT for TIARA instruments (8s)...");
+  instrumentScanTimer = setTimeout(stopInstrumentScan, 8000);
+}
 
 function loadKnownInstrumentIds() {
   try {
@@ -768,6 +862,8 @@ function applyState(data) {
 }
 
 function onMqttMessage(topic, payloadBuf) {
+  processInstrumentScanTopic(topic);
+
   const payload = new TextDecoder().decode(payloadBuf);
 
   if (topic === `${topicBase}/state/snapshot`) {
@@ -1249,6 +1345,9 @@ function bootstrap() {
   const manageBtn = $("instrument-manage-btn");
   if (manageBtn) manageBtn.addEventListener("click", openInstrumentManager);
 
+  const scanBtn = $("instrument-scan-btn");
+  if (scanBtn) scanBtn.addEventListener("click", startInstrumentScan);
+
   const manageCloseBtn = $("instrument-manager-close-btn");
   if (manageCloseBtn) manageCloseBtn.addEventListener("click", closeInstrumentManager);
 
@@ -1292,6 +1391,7 @@ function bootstrap() {
   });
 
   connectMqtt();
+  setInstrumentScanButtonState();
 }
 
 bootstrap();
